@@ -61,6 +61,7 @@ Extend GUI:
   - Show an audio fallback panel when playing `mp3`.
   - Display previous, current, and next lyric lines.
   - Provide Back, Play/Pause, and progress slider controls.
+  - Return to the Library page automatically when playback reaches the end of the media.
 
 ## Data Model
 
@@ -104,6 +105,7 @@ If these models grow after the MVP, move them into `core/song_model.py` in a lat
 7. Player opens the preferred media path.
 8. During playback, a timer reads the current media position and updates previous, current, and next lyrics.
 9. User can pause, resume, scrub, or return to Library.
+10. When the media finishes, the app stops the player and switches back to the Library page automatically.
 
 ## Playback Rules
 
@@ -114,6 +116,7 @@ If these models grow after the MVP, move them into `core/song_model.py` in a lat
 - If TXT exists but cannot be parsed, allow media playback and show a clear lyric parse error state.
 - If `#BPM` is missing or invalid, allow media playback but disable synchronized lyrics.
 - If `#GAP` is missing, default to `0` milliseconds.
+- When Qt Multimedia reports end-of-media, stop lyric timer updates, clear transient player state, and switch back to the Library page.
 
 ## UltraStar Timing
 
