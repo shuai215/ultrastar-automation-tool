@@ -1,0 +1,21 @@
+[project]
+name = "ultrastar-clone"
+version = "0.1.0"
+description = "A clean-room UltraStar song import assistant."
+requires-python = ">=3.11"
+dependencies = [
+    "beautifulsoup4>=4.12",
+    "PyQt6>=6.6",
+    "PyQt6-Fluent-Widgets>=1.5",
+    "requests>=2.31",
+    "yt-dlp>=2025.1",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
