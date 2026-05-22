@@ -117,6 +117,37 @@ class LibraryTests(unittest.TestCase):
         self.assertTrue(entry.is_playable)
         self.assertIsNotNone(entry.parse_error)
 
+    def test_scan_song_library_does_not_report_alt_media_as_mp3_or_mp4(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            folder = root / "Alt Media"
+            folder.mkdir()
+            (folder / "song.txt").write_text(
+                "\n".join(
+                    [
+                        "#TITLE:Alt Media",
+                        "#AUDIO:audio.ogg",
+                        "#VIDEO:video.webm",
+                        "E",
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            (folder / "audio.ogg").write_bytes(b"audio")
+            (folder / "video.webm").write_bytes(b"video")
+
+            entries = scan_song_library(root)
+
+        self.assertEqual(len(entries), 1)
+        entry = entries[0]
+        self.assertEqual(entry.audio_path.name, "audio.ogg")
+        self.assertEqual(entry.video_path.name, "video.webm")
+        self.assertEqual(entry.preferred_media_path.name, "video.webm")
+        self.assertTrue(entry.is_playable)
+        self.assertFalse(entry.has_mp3)
+        self.assertFalse(entry.has_mp4)
+        self.assertEqual(entry.formats, "txt")
+
     def test_scan_missing_song_library_returns_empty_list(self) -> None:
         with TemporaryDirectory() as temp_dir:
             entries = scan_song_library(Path(temp_dir) / "missing")

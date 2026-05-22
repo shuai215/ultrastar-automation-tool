@@ -72,8 +72,10 @@ def scan_song_library(root: Path) -> list[SongLibraryEntry]:
     for folder in sorted((item for item in root.iterdir() if item.is_dir()), key=lambda item: item.name.lower()):
         txt_path = _first_file(folder, "*.txt")
         song, parse_error = _parse_song_metadata(txt_path)
-        audio_path = _tagged_file(folder, song.audio_filename if song else "") or _first_file(folder, "*.mp3")
-        video_path = _tagged_file(folder, song.video_filename if song else "") or _first_file(folder, "*.mp4")
+        mp3_path = _first_file(folder, "*.mp3")
+        mp4_path = _first_file(folder, "*.mp4")
+        audio_path = _tagged_file(folder, song.audio_filename if song else "") or mp3_path
+        video_path = _tagged_file(folder, song.video_filename if song else "") or mp4_path
         cover_path = _tagged_file(folder, song.cover_filename if song else "") or _first_file(
             folder,
             "*.jpg",
@@ -81,9 +83,9 @@ def scan_song_library(root: Path) -> list[SongLibraryEntry]:
             "*.png",
         )
         has_txt = txt_path is not None
-        has_mp3 = audio_path is not None
-        has_mp4 = video_path is not None
-        if has_txt or has_mp3 or has_mp4:
+        has_mp3 = mp3_path is not None
+        has_mp4 = mp4_path is not None
+        if has_txt or audio_path is not None or video_path is not None:
             entries.append(
                 SongLibraryEntry(
                     name=folder.name,
