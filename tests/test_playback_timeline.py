@@ -89,6 +89,25 @@ class PlaybackTimelineTests(unittest.TestCase):
         self.assertEqual(build_timed_lyrics(song), ())
         self.assertIsNone(lyrics_at_position((), 1000).current)
 
+    def test_empty_lyrics_with_valid_bpm_returns_empty_timeline(self) -> None:
+        song = Song(
+            title="Song",
+            artist="Artist",
+            audio_filename="",
+            video_filename="",
+            cover_filename="",
+            bpm=150.0,
+            gap_ms=0,
+            lyrics=(),
+        )
+
+        window = lyrics_at_position((), 1000)
+
+        self.assertEqual(build_timed_lyrics(song), ())
+        self.assertIsNone(window.previous)
+        self.assertIsNone(window.current)
+        self.assertIsNone(window.next)
+
     def test_non_finite_bpm_returns_empty_timeline(self) -> None:
         for bpm in (float("nan"), float("inf"), float("-inf")):
             with self.subTest(bpm=bpm):
