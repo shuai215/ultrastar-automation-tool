@@ -101,19 +101,6 @@ class ConverterTests(unittest.TestCase):
         self.assertIn('--cookies-from-browser', command)
         self.assertIn('chrome', command)
 
-    def test_python_api_fallback_uses_remote_components(self) -> None:
-        converter = YtDlpConverter(
-            yt_dlp_path=None,
-            ffmpeg_path='C:/ffmpeg/bin/ffmpeg.exe',
-            cookies_from_browser='firefox',
-        )
-
-        options = converter._build_ydl_options(Path('Artist - Song.mp3'), 'mp3', fallback=True)
-
-        self.assertEqual(options['remote_components'], ['ejs:github'])
-        self.assertEqual(options['js_runtimes'], {'node': {}})
-        self.assertEqual(options['cookiesfrombrowser'], ('firefox', None, None, None))
-
     def test_convert_returns_none_without_youtube_url(self) -> None:
         runner = FakeRunner()
         converter = YtDlpConverter(yt_dlp_path='yt-dlp', ffmpeg_path='C:/ffmpeg/bin/ffmpeg.exe', runner=runner)

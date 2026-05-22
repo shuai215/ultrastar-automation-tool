@@ -5,11 +5,14 @@
 This module wraps ``yt-dlp`` and ``ffmpeg``. During an active download, yt-dlp
 creates ``.part`` files as temporary partial downloads. If the command fails,
 we remove matching partial files so the user does not mistake them for finished
-media files.
+media files. The GUI launches the ``yt-dlp`` executable through ``subprocess``
+instead of importing the Python package directly, so stdout/stderr can be
+streamed into the progress UI.
 
 本模块封装 ``yt-dlp`` 和 ``ffmpeg``。下载过程中，yt-dlp 会创建 ``.part``
 临时文件；如果命令失败，我们会清理对应的残留文件，避免用户误以为它们是
-已经完成的视频或音频。
+已经完成的视频或音频。GUI 通过 ``subprocess`` 启动 ``yt-dlp`` 可执行文件，
+而不是直接导入 Python 包，因此可以把 stdout/stderr 实时解析到进度界面。
 """
 
 from __future__ import annotations
@@ -20,7 +23,6 @@ from pathlib import Path
 import re
 import shutil
 import subprocess
-import traceback
 from typing import Protocol
 from urllib.parse import parse_qs, urlparse
 
@@ -113,9 +115,6 @@ class YtDlpConverter(MediaConverter):
         song_folder.mkdir(parents=True, exist_ok=True)
         output_path = song_folder / f"{request.folder_name}.{request.media_format}"
         youtube_url = normalize_youtube_url(metadata.youtube_url)
-        if self.runner is None:
-            return self._convert_with_python_api(youtube_url, output_path, request.media_format)
-
         command = self._build_command(youtube_url, output_path, request.media_format, fallback=False)
         result = self._run(command, song_folder)
         if should_retry_with_stable_youtube_format(result):
@@ -131,48 +130,6 @@ class YtDlpConverter(MediaConverter):
             raise FileNotFoundError(f"yt-dlp did not create expected file: {output_path}")
         return output_path
 
-    def _convert_with_python_api(self, youtube_url: str, output_path: Path, media_format: str) -> Path:
-        result = self._run_yt_dlp_api(youtube_url, output_path, media_format, fallback=False)
-        if should_retry_with_stable_youtube_format(result):
-            cleanup_partial_files(output_path)
-            self._notify_progress(0, "Retrying with stable YouTube format")
-            result = self._run_yt_dlp_api(youtube_url, output_path, media_format, fallback=True)
-        if result.returncode != 0:
-            cleanup_partial_files(output_path)
-            raise RuntimeError(format_command_error(result))
-        if not output_path.exists():
-            cleanup_partial_files(output_path)
-            raise FileNotFoundError(f"yt-dlp did not create expected file: {output_path}")
-        return output_path
-
-    def _run_yt_dlp_api(
-        self,
-        youtube_url: str,
-        output_path: Path,
-        media_format: str,
-        fallback: bool,
-    ) -> subprocess.CompletedProcess[str]:
-        try:
-            import yt_dlp
-        except ImportError as exc:
-            return subprocess.CompletedProcess(["yt_dlp", youtube_url], 1, stdout="", stderr=str(exc))
-
-        logger = YtDlpLogCapture()
-        options = self._build_ydl_options(output_path, media_format, fallback, logger)
-        try:
-            with yt_dlp.YoutubeDL(options) as ydl:
-                ydl.download([youtube_url])
-        except Exception as exc:
-            logger.error(str(exc))
-            logger.debug(traceback.format_exc())
-            return subprocess.CompletedProcess(
-                ["yt_dlp", youtube_url],
-                1,
-                stdout=logger.stdout,
-                stderr=logger.stderr,
-            )
-        return subprocess.CompletedProcess(["yt_dlp", youtube_url], 0, stdout=logger.stdout, stderr=logger.stderr)
-
     def _run(self, command: list[str], cwd: Path) -> subprocess.CompletedProcess[str]:
         if self.runner is None:
             return run_command(command, cwd=cwd, progress_callback=self.progress_callback)
@@ -181,70 +138,6 @@ class YtDlpConverter(MediaConverter):
     def _notify_progress(self, percent: int, message: str) -> None:
         if self.progress_callback is not None:
             self.progress_callback(percent, message)
-
-    def _build_ydl_options(
-        self,
-        output_path: Path,
-        media_format: str,
-        fallback: bool,
-        logger: object | None = None,
-    ) -> dict:
-        options = {
-            "outtmpl": str(output_path),
-            "logger": logger,
-            "quiet": True,
-            "no_warnings": False,
-            "noplaylist": True,
-            "ffmpeg_location": str(Path(self.ffmpeg_path).parent) if self.ffmpeg_path else None,
-            "progress_hooks": [self._on_ytdlp_progress],
-        }
-        if fallback:
-            options.update(
-                {
-                    "remote_components": [REMOTE_JS_COMPONENT],
-                    "js_runtimes": {"node": {}},
-                    "extractor_args": {
-                        "youtube": {
-                            "player_client": ["default", "mweb", "tv", "-web_safari", "-android_sdkless"],
-                        },
-                    },
-                }
-            )
-        if self.cookies_from_browser:
-            options["cookiesfrombrowser"] = (self.cookies_from_browser, None, None, None)
-        if media_format == "mp3":
-            options.update(
-                {
-                    "format": STABLE_YOUTUBE_FORMAT if fallback else LOWEST_AUDIO_SOURCE_FORMAT,
-                    "postprocessors": [
-                        {
-                            "key": "FFmpegExtractAudio",
-                            "preferredcodec": "mp3",
-                            "preferredquality": "0",
-                        }
-                    ],
-                }
-            )
-            return options
-        if media_format == "mp4":
-            options.update(
-                {
-                    "format": STABLE_YOUTUBE_FORMAT if fallback else LOWEST_VIDEO_FORMAT,
-                    "merge_output_format": "mp4",
-                }
-            )
-            return options
-        raise ValueError("media_format must be 'mp3' or 'mp4'")
-
-    def _on_ytdlp_progress(self, status: dict) -> None:
-        if self.progress_callback is None or status.get("status") != "downloading":
-            return
-        total = status.get("total_bytes") or status.get("total_bytes_estimate")
-        downloaded = status.get("downloaded_bytes")
-        if not total or downloaded is None:
-            return
-        percent = max(0, min(100, int(downloaded * 100 / total)))
-        self.progress_callback(percent, status.get("_percent_str", f"{percent}%").strip())
 
     def _build_command(
         self,
@@ -280,7 +173,8 @@ class YtDlpConverter(MediaConverter):
             )
         if self.cookies_from_browser:
             # Reuse the user's browser session when YouTube rejects anonymous downloads.
-            # 当 YouTube 拒绝匿名下载时，复用用户浏览器会话。
+            # Cookie handling stays in yt-dlp: we pass only the browser name, and yt-dlp reads it.
+            # 当 YouTube 拒绝匿名下载时，复用用户浏览器会话；这里只传浏览器名称，由 yt-dlp 自己读取 cookie。
             base.extend(["--cookies-from-browser", self.cookies_from_browser])
 
         if media_format == "mp3":
@@ -307,41 +201,10 @@ class YtDlpConverter(MediaConverter):
         raise ValueError("media_format must be 'mp3' or 'mp4'")
 
     def _ensure_tools(self) -> None:
-        if self.runner is not None and not self.yt_dlp_path:
+        if not self.yt_dlp_path:
             raise FileNotFoundError("yt-dlp executable was not found on PATH")
         if not self.ffmpeg_path:
             raise FileNotFoundError("ffmpeg executable was not found on PATH")
-
-
-class YtDlpLogCapture:
-    """Small logger adapter that captures yt-dlp Python API output.
-
-    捕获 yt-dlp Python API 日志的小型 logger 适配器。
-    """
-
-    def __init__(self) -> None:
-        self._stdout: list[str] = []
-        self._stderr: list[str] = []
-
-    @property
-    def stdout(self) -> str:
-        return "\n".join(self._stdout)
-
-    @property
-    def stderr(self) -> str:
-        return "\n".join(self._stderr)
-
-    def debug(self, message: str) -> None:
-        self._stdout.append(str(message))
-
-    def info(self, message: str) -> None:
-        self._stdout.append(str(message))
-
-    def warning(self, message: str) -> None:
-        self._stderr.append(f"WARNING: {message}")
-
-    def error(self, message: str) -> None:
-        self._stderr.append(f"ERROR: {message}")
 
 
 def run_command(
@@ -351,7 +214,11 @@ def run_command(
 ) -> subprocess.CompletedProcess[str]:
     """Run a subprocess and optionally stream yt-dlp progress.
 
-    运行子进程，并在需要时实时解析 yt-dlp 下载进度。
+    The subprocess path mirrors manual PowerShell usage and lets the GUI parse
+    yt-dlp output lines directly from stdout/stderr.
+
+    运行子进程，并在需要时实时解析 yt-dlp 下载进度。这个路径等同于手动在
+    PowerShell 里执行 yt-dlp，GUI 可以直接从 stdout/stderr 解析日志和进度。
     """
 
     if progress_callback is None:
