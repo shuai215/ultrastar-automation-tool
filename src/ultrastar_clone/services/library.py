@@ -8,6 +8,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
+from ultrastar_clone.core.song_parser import Song, parse_ultrastar_txt
+
 
 @dataclass(frozen=True)
 class SongLibraryEntry:
@@ -21,6 +23,13 @@ class SongLibraryEntry:
     has_txt: bool
     has_mp3: bool
     has_mp4: bool
+    title: str = ""
+    artist: str = ""
+    txt_path: Path | None = None
+    audio_path: Path | None = None
+    video_path: Path | None = None
+    cover_path: Path | None = None
+    parse_error: str | None = None
 
     @property
     def formats(self) -> str:
@@ -32,6 +41,22 @@ class SongLibraryEntry:
         if self.has_mp4:
             formats.append("mp4")
         return ", ".join(formats)
+
+    @property
+    def preferred_media_path(self) -> Path | None:
+        return self.video_path or self.audio_path
+
+    @property
+    def is_playable(self) -> bool:
+        return self.preferred_media_path is not None
+
+    @property
+    def display_title(self) -> str:
+        return self.title or self.name
+
+    @property
+    def display_artist(self) -> str:
+        return self.artist
 
 
 def scan_song_library(root: Path) -> list[SongLibraryEntry]:
@@ -45,9 +70,19 @@ def scan_song_library(root: Path) -> list[SongLibraryEntry]:
 
     entries: list[SongLibraryEntry] = []
     for folder in sorted((item for item in root.iterdir() if item.is_dir()), key=lambda item: item.name.lower()):
-        has_txt = any(folder.glob("*.txt"))
-        has_mp3 = any(folder.glob("*.mp3"))
-        has_mp4 = any(folder.glob("*.mp4"))
+        txt_path = _first_file(folder, "*.txt")
+        song, parse_error = _parse_song_metadata(txt_path)
+        audio_path = _tagged_file(folder, song.audio_filename if song else "") or _first_file(folder, "*.mp3")
+        video_path = _tagged_file(folder, song.video_filename if song else "") or _first_file(folder, "*.mp4")
+        cover_path = _tagged_file(folder, song.cover_filename if song else "") or _first_file(
+            folder,
+            "*.jpg",
+            "*.jpeg",
+            "*.png",
+        )
+        has_txt = txt_path is not None
+        has_mp3 = audio_path is not None
+        has_mp4 = video_path is not None
         if has_txt or has_mp3 or has_mp4:
             entries.append(
                 SongLibraryEntry(
@@ -56,6 +91,41 @@ def scan_song_library(root: Path) -> list[SongLibraryEntry]:
                     has_txt=has_txt,
                     has_mp3=has_mp3,
                     has_mp4=has_mp4,
+                    title=song.title if song else "",
+                    artist=song.artist if song else "",
+                    txt_path=txt_path,
+                    audio_path=audio_path,
+                    video_path=video_path,
+                    cover_path=cover_path,
+                    parse_error=parse_error,
                 )
             )
     return entries
+
+
+def _parse_song_metadata(txt_path: Path | None) -> tuple[Song | None, str | None]:
+    if txt_path is None:
+        return None, None
+
+    try:
+        return parse_ultrastar_txt(txt_path), None
+    except Exception as exc:
+        return None, str(exc)
+
+
+def _tagged_file(folder: Path, filename: str) -> Path | None:
+    if not filename:
+        return None
+
+    path = folder / filename
+    if path.is_file():
+        return path
+    return None
+
+
+def _first_file(folder: Path, *patterns: str) -> Path | None:
+    for pattern in patterns:
+        matches = sorted((path for path in folder.glob(pattern) if path.is_file()), key=lambda path: path.name.lower())
+        if matches:
+            return matches[0]
+    return None
