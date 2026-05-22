@@ -8,6 +8,7 @@ from __future__ import annotations
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from unittest.mock import patch
 
 from ultrastar_clone.services.library import scan_song_library
 
@@ -147,6 +148,47 @@ class LibraryTests(unittest.TestCase):
         self.assertFalse(entry.has_mp3)
         self.assertFalse(entry.has_mp4)
         self.assertEqual(entry.formats, "txt")
+
+    def test_scan_song_library_rejects_tagged_media_paths_outside_folder(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            (root / "outside.mp3").write_bytes(b"outside")
+            folder = root / "Unsafe"
+            folder.mkdir()
+            (folder / "song.txt").write_text(
+                "\n".join(
+                    [
+                        "#TITLE:Unsafe",
+                        "#MP3:..\\outside.mp3",
+                        "E",
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            fallback_path = folder / "fallback.mp3"
+            fallback_path.write_bytes(b"fallback")
+
+            entries = scan_song_library(root)
+
+        self.assertEqual(len(entries), 1)
+        entry = entries[0]
+        self.assertEqual(entry.audio_path, fallback_path)
+        self.assertEqual(entry.audio_path.name, "fallback.mp3")
+        self.assertEqual(entry.preferred_media_path.name, "fallback.mp3")
+
+    def test_scan_song_library_does_not_swallow_unexpected_parser_errors(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            folder = root / "Bug"
+            folder.mkdir()
+            (folder / "song.txt").write_text("#TITLE:Bug\nE\n", encoding="utf-8")
+
+            with patch(
+                "ultrastar_clone.services.library.parse_ultrastar_txt",
+                side_effect=RuntimeError("bug"),
+            ):
+                with self.assertRaises(RuntimeError):
+                    scan_song_library(root)
 
     def test_scan_missing_song_library_returns_empty_list(self) -> None:
         with TemporaryDirectory() as temp_dir:

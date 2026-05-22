@@ -111,7 +111,7 @@ def _parse_song_metadata(txt_path: Path | None) -> tuple[Song | None, str | None
 
     try:
         return parse_ultrastar_txt(txt_path), None
-    except Exception as exc:
+    except (OSError, UnicodeDecodeError, ValueError) as exc:
         return None, str(exc)
 
 
@@ -119,10 +119,17 @@ def _tagged_file(folder: Path, filename: str) -> Path | None:
     if not filename:
         return None
 
-    path = folder / filename
-    if path.is_file():
-        return path
-    return None
+    tagged_path = Path(filename)
+    if tagged_path.is_absolute():
+        return None
+
+    base = folder.resolve()
+    target = (folder / tagged_path).resolve()
+    if not target.is_relative_to(base):
+        return None
+    if not target.is_file():
+        return None
+    return target
 
 
 def _first_file(folder: Path, *patterns: str) -> Path | None:
