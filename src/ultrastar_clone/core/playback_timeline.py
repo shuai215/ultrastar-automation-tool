@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from math import isfinite
 from typing import Sequence
 
 from ultrastar_clone.core.song_parser import LyricsLine, Song
@@ -30,7 +31,7 @@ class LyricsWindow:
 def build_timed_lyrics(song: Song) -> tuple[TimedLyricsLine, ...]:
     """Convert UltraStar beat-based lyric lines to playback timestamps."""
 
-    if song.bpm is None or song.bpm <= 0 or not song.lyrics:
+    if song.bpm is None or not isfinite(song.bpm) or song.bpm <= 0 or not song.lyrics:
         return ()
 
     unit_duration_ms = 15000.0 / song.bpm

@@ -89,6 +89,56 @@ class PlaybackTimelineTests(unittest.TestCase):
         self.assertEqual(build_timed_lyrics(song), ())
         self.assertIsNone(lyrics_at_position((), 1000).current)
 
+    def test_non_finite_bpm_returns_empty_timeline(self) -> None:
+        for bpm in (float("nan"), float("inf"), float("-inf")):
+            with self.subTest(bpm=bpm):
+                song = Song(
+                    title="Song",
+                    artist="Artist",
+                    audio_filename="",
+                    video_filename="",
+                    cover_filename="",
+                    bpm=bpm,
+                    gap_ms=1000,
+                    lyrics=(
+                        LyricsLine((Note(0, 4, 1, "Hello"),), "Hello", 0, 4),
+                    ),
+                )
+
+                self.assertEqual(build_timed_lyrics(song), ())
+
+    def test_lyrics_at_position_uses_start_inclusive_end_exclusive_windows(self) -> None:
+        song = Song(
+            title="Song",
+            artist="Artist",
+            audio_filename="",
+            video_filename="",
+            cover_filename="",
+            bpm=150.0,
+            gap_ms=1000,
+            lyrics=(
+                LyricsLine((Note(0, 4, 1, "Hello"),), "Hello", 0, 4),
+                LyricsLine((Note(8, 4, 1, "World"),), "World", 8, 12),
+            ),
+        )
+        lines = build_timed_lyrics(song)
+
+        at_first_start = lyrics_at_position(lines, 1000)
+        at_first_end = lyrics_at_position(lines, 1400)
+        at_second_start = lyrics_at_position(lines, 1800)
+        at_second_end = lyrics_at_position(lines, 2200)
+
+        self.assertEqual(at_first_start.current.text, "Hello")
+        self.assertIsNone(at_first_start.previous)
+        self.assertEqual(at_first_end.previous.text, "Hello")
+        self.assertIsNone(at_first_end.current)
+        self.assertEqual(at_first_end.next.text, "World")
+        self.assertEqual(at_second_start.previous.text, "Hello")
+        self.assertEqual(at_second_start.current.text, "World")
+        self.assertEqual(at_second_end.previous.text, "World")
+        self.assertIsNone(at_second_end.current)
+        self.assertIsNone(at_second_end.next)
+
 
 if __name__ == "__main__":
     unittest.main()
