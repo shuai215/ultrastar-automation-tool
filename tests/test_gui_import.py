@@ -13,6 +13,13 @@ class GuiImportTests(unittest.TestCase):
         self.assertTrue(callable(main))
         self.assertTrue(GuiDependencyError)
 
+    def test_format_media_time(self) -> None:
+        from ultrastar_clone.gui.app import format_media_time
+
+        self.assertEqual(format_media_time(0), "00:00")
+        self.assertEqual(format_media_time(65000), "01:05")
+        self.assertEqual(format_media_time(3665000), "61:05")
+
 
 if __name__ == "__main__":
     unittest.main()
