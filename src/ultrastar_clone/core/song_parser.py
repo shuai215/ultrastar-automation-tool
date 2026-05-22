@@ -10,11 +10,11 @@ from pathlib import Path
 class Note:
     """A single UltraStar note row."""
 
-    type: str
     start_beat: int
     duration: int
     pitch: int
-    text: str
+    syllable: str
+    type: str = ":"
 
     @property
     def end_beat(self) -> int:
@@ -25,7 +25,7 @@ class Note:
 class LyricsLine:
     """A lyric line containing one or more notes."""
 
-    notes: list[Note]
+    notes: tuple[Note, ...]
     text: str
     start_beat: int
     end_beat: int
@@ -40,9 +40,9 @@ class Song:
     audio_filename: str = ""
     video_filename: str = ""
     cover_filename: str = ""
-    bpm: float = 0.0
+    bpm: float | None = None
     gap_ms: int = 0
-    lyrics: list[LyricsLine] = field(default_factory=list)
+    lyrics: tuple[LyricsLine, ...] = field(default_factory=tuple)
 
 
 def parse_ultrastar_txt(path: str | Path) -> Song:
@@ -89,7 +89,7 @@ def parse_ultrastar_txt(path: str | Path) -> Song:
         cover_filename=tags.get("COVER", ""),
         bpm=_parse_float(tags.get("BPM", "")),
         gap_ms=_parse_int(tags.get("GAP", ""), default=0),
-        lyrics=lyrics,
+        lyrics=tuple(lyrics),
     )
 
 
@@ -106,11 +106,11 @@ def _parse_note(line: str) -> Note | None:
         return None
 
     return Note(
-        type=marker,
         start_beat=start_beat,
         duration=duration,
         pitch=pitch,
-        text=parts[3],
+        syllable=parts[3],
+        type=marker,
     )
 
 
@@ -118,10 +118,10 @@ def _append_lyrics_line(lyrics: list[LyricsLine], notes: list[Note]) -> None:
     if not notes:
         return
 
-    text = "".join(note.text for note in notes).strip()
+    text = "".join(note.syllable for note in notes).strip()
     lyrics.append(
         LyricsLine(
-            notes=list(notes),
+            notes=tuple(notes),
             text=text,
             start_beat=notes[0].start_beat,
             end_beat=max(note.end_beat for note in notes),
@@ -129,11 +129,11 @@ def _append_lyrics_line(lyrics: list[LyricsLine], notes: list[Note]) -> None:
     )
 
 
-def _parse_float(value: str) -> float:
+def _parse_float(value: str) -> float | None:
     try:
         return float(value)
     except ValueError:
-        return 0.0
+        return None
 
 
 def _parse_int(value: str, default: int | None = None) -> int | None:

@@ -6,7 +6,7 @@ import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from ultrastar_clone.core.song_parser import parse_ultrastar_txt
+from ultrastar_clone.core.song_parser import Note, parse_ultrastar_txt
 
 
 class SongParserTests(unittest.TestCase):
@@ -77,6 +77,43 @@ class SongParserTests(unittest.TestCase):
         self.assertEqual(len(song.lyrics), 1)
         self.assertEqual(song.lyrics[0].text, "ok")
         self.assertEqual(song.lyrics[0].notes[0].start_beat, 4)
+
+    def test_public_note_collections_are_immutable(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            txt = Path(temp_dir) / "song.txt"
+            txt.write_text("#TITLE:Song\n#ARTIST:Artist\n#BPM:100\n: 0 2 1 Hi\nE\n", encoding="utf-8")
+
+            song = parse_ultrastar_txt(txt)
+
+        with self.assertRaises(AttributeError):
+            song.lyrics.append(song.lyrics[0])  # type: ignore[attr-defined]
+        with self.assertRaises(AttributeError):
+            song.lyrics[0].notes.append(song.lyrics[0].notes[0])  # type: ignore[attr-defined]
+
+    def test_missing_or_malformed_bpm_is_none(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            missing_bpm = Path(temp_dir) / "missing_bpm.txt"
+            missing_bpm.write_text("#TITLE:Song\n#ARTIST:Artist\n: 0 2 1 Hi\nE\n", encoding="utf-8")
+            malformed_bpm = Path(temp_dir) / "malformed_bpm.txt"
+            malformed_bpm.write_text(
+                "#TITLE:Song\n#ARTIST:Artist\n#BPM:not-a-number\n: 0 2 1 Hi\nE\n",
+                encoding="utf-8",
+            )
+
+            missing_song = parse_ultrastar_txt(missing_bpm)
+            malformed_song = parse_ultrastar_txt(malformed_bpm)
+
+        self.assertIsNone(missing_song.bpm)
+        self.assertIsNone(malformed_song.bpm)
+
+    def test_note_positional_constructor_starts_with_timing_and_syllable(self) -> None:
+        note = Note(4, 2, 1, "Hi")
+
+        self.assertEqual(note.start_beat, 4)
+        self.assertEqual(note.duration, 2)
+        self.assertEqual(note.pitch, 1)
+        self.assertEqual(note.syllable, "Hi")
+        self.assertEqual(note.type, ":")
 
 
 if __name__ == "__main__":
