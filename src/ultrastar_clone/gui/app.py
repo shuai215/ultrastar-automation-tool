@@ -13,6 +13,7 @@ from ultrastar_clone.core.downloader import USDBTextDownloader
 from ultrastar_clone.core.scraper import USDBScraper
 from ultrastar_clone.models import SongRequest
 from ultrastar_clone.services.controller import ImportController
+from ultrastar_clone.services.library import scan_song_library
 from ultrastar_clone.services.logger import build_logger
 from ultrastar_clone.services.settings import (
     AppSettings,
@@ -22,8 +23,19 @@ from ultrastar_clone.services.settings import (
 )
 
 try:
-    from PyQt6.QtCore import QObject, QThread, pyqtSignal
-    from PyQt6.QtWidgets import QApplication, QFileDialog, QFrame, QHBoxLayout, QVBoxLayout, QWidget
+    from PyQt6.QtCore import QObject, QThread, QUrl, pyqtSignal
+    from PyQt6.QtGui import QDesktopServices
+    from PyQt6.QtWidgets import (
+        QApplication,
+        QFileDialog,
+        QFrame,
+        QHBoxLayout,
+        QHeaderView,
+        QTableWidget,
+        QTableWidgetItem,
+        QVBoxLayout,
+        QWidget,
+    )
     from qfluentwidgets import (
         BodyLabel,
         CardWidget,
@@ -78,15 +90,16 @@ if missing_dependency_error is None:
     class ImportWorker(QObject):
         log = pyqtSignal(str)
         progress = pyqtSignal(int, str)
+        txtProgress = pyqtSignal(int, str)
+        mediaProgress = pyqtSignal(int, str)
         done = pyqtSignal(str, str, str)
         failed = pyqtSignal(str)
 
         def __init__(
             self,
-            username: str,
-            password: str,
+            username: str | None,
+            password: str | None,
             request: SongRequest,
-            skip_media: bool,
             respect_wait: bool,
             cookie_browser: str | None,
         ) -> None:
@@ -94,7 +107,6 @@ if missing_dependency_error is None:
             self.username = username
             self.password = password
             self.request = request
-            self.skip_media = skip_media
             self.respect_wait = respect_wait
             self.cookie_browser = cookie_browser
 
@@ -120,12 +132,14 @@ if missing_dependency_error is None:
 
                     def progress(_, value: int, message: str) -> None:
                         self.progress.emit(value, message)
+                        self._emit_txt_progress(value, message)
 
-                scraper = USDBScraper(self.username, self.password)
-                downloader = USDBTextDownloader(opener=scraper.opener, respect_wait=self.respect_wait)
+                scraper = USDBScraper(self.username, self.password) if self.username and self.password else None
+                opener = scraper.opener if scraper is not None else None
+                downloader = USDBTextDownloader(opener=opener, respect_wait=self.respect_wait)
                 converter = (
                     NoMediaConverter()
-                    if self.skip_media
+                    if not self.request.download_audio and not self.request.download_video
                     else YtDlpConverter(
                         progress_callback=self._media_progress,
                         cookies_from_browser=self.cookie_browser,
@@ -133,14 +147,26 @@ if missing_dependency_error is None:
                 )
                 controller = ImportController(settings, scraper, downloader, converter, logger=CombinedLogger())
                 result = controller.import_song(self.request)
-                media_path = str(result.media_path) if result.media_path else ""
-                self.done.emit(str(result.song_folder), str(result.txt_path), media_path)
+                txt_path = str(result.txt_path) if result.txt_path else ""
+                media_paths = "; ".join(str(path) for path in result.media_paths)
+                self.done.emit(str(result.song_folder), txt_path, media_paths)
             except Exception as exc:
                 self.failed.emit(str(exc))
 
         def _media_progress(self, percent: int, message: str) -> None:
             scaled = 60 + int(percent * 0.25)
             self.progress.emit(min(scaled, 85), f"Media download {percent}%")
+            self.mediaProgress.emit(percent, message)
+
+        def _emit_txt_progress(self, value: int, message: str) -> None:
+            if not self.request.download_lyrics:
+                return
+            if value < 45:
+                self.txtProgress.emit(0, "TXT download 0%")
+            elif value == 45:
+                self.txtProgress.emit(20, message)
+            elif value >= 60:
+                self.txtProgress.emit(100, "TXT download complete")
 
 
     class HomePage(QWidget):
@@ -172,6 +198,11 @@ if missing_dependency_error is None:
             self.title_edit = LineEdit()
             self.title_edit.setPlaceholderText("Title")
             self.title_edit.setText("Yellow")
+            self.mode_combo = ComboBox()
+            self.mode_combo.addItems(["Search USDB", "Direct YouTube URL"])
+            self.mode_combo.currentTextChanged.connect(self._sync_input_mode)
+            self.url_edit = LineEdit()
+            self.url_edit.setPlaceholderText("YouTube URL")
             self.output_edit = LineEdit()
             self.output_edit.setPlaceholderText("Output folder")
             self.output_edit.setText(str(Path.cwd() / "demo_output"))
@@ -182,10 +213,12 @@ if missing_dependency_error is None:
             browse_btn.clicked.connect(self._choose_output)
             output_row.addWidget(browse_btn)
 
-            self.download_media = CheckBox("Download media")
-            self.download_media.setChecked(True)
-            self.convert_mp3 = CheckBox("Convert to MP3 audio only")
-            self.convert_mp3.setChecked(False)
+            self.download_lyrics = CheckBox("Download lyrics TXT")
+            self.download_lyrics.setChecked(True)
+            self.download_audio = CheckBox("Download MP3 audio")
+            self.download_audio.setChecked(False)
+            self.download_video = CheckBox("Download video MP4")
+            self.download_video.setChecked(True)
             self.use_cookies = CheckBox("Use browser cookies")
             self.use_cookies.setChecked(False)
             self.cookie_browser = ComboBox()
@@ -194,12 +227,16 @@ if missing_dependency_error is None:
             self.respect_wait.setChecked(True)
 
             option_row = QHBoxLayout()
-            option_row.addWidget(self.download_media)
-            option_row.addWidget(self.convert_mp3)
-            option_row.addWidget(self.use_cookies)
-            option_row.addWidget(self.cookie_browser)
-            option_row.addWidget(self.respect_wait)
+            option_row.addWidget(self.download_lyrics)
+            option_row.addWidget(self.download_audio)
+            option_row.addWidget(self.download_video)
             option_row.addStretch(1)
+
+            media_option_row = QHBoxLayout()
+            media_option_row.addWidget(self.use_cookies)
+            media_option_row.addWidget(self.cookie_browser)
+            media_option_row.addWidget(self.respect_wait)
+            media_option_row.addStretch(1)
 
             self.start_btn = PrimaryPushButton(FIF.PLAY, "Start import")
             self.start_btn.clicked.connect(self._emit_start)
@@ -207,33 +244,58 @@ if missing_dependency_error is None:
             self.progress = ProgressBar()
             self.progress.setValue(0)
             self.progress_label = BodyLabel("Ready")
+            self.txt_progress = ProgressBar()
+            self.txt_progress.setValue(0)
+            self.txt_progress_label = BodyLabel("TXT download 0%")
+            self.media_progress = ProgressBar()
+            self.media_progress.setValue(0)
+            self.media_progress_label = BodyLabel("Media download 0%")
 
             card_layout.addWidget(SubtitleLabel("Song"))
+            card_layout.addWidget(self.mode_combo)
             card_layout.addWidget(self.artist_edit)
             card_layout.addWidget(self.title_edit)
+            card_layout.addWidget(self.url_edit)
             card_layout.addWidget(SubtitleLabel("Destination"))
             card_layout.addLayout(output_row)
             card_layout.addLayout(option_row)
+            card_layout.addLayout(media_option_row)
             card_layout.addWidget(self.progress_label)
             card_layout.addWidget(self.progress)
+            card_layout.addWidget(self.txt_progress_label)
+            card_layout.addWidget(self.txt_progress)
+            card_layout.addWidget(self.media_progress_label)
+            card_layout.addWidget(self.media_progress)
             card_layout.addWidget(self.start_btn)
             layout.addWidget(card)
             layout.addStretch(1)
+            self._sync_input_mode()
 
         def _choose_output(self) -> None:
             folder = QFileDialog.getExistingDirectory(self, "Choose output folder", self.output_edit.text())
             if folder:
                 self.output_edit.setText(folder)
 
+        def _sync_input_mode(self) -> None:
+            direct_url = self.mode_combo.currentText() == "Direct YouTube URL"
+            self.download_lyrics.setEnabled(not direct_url)
+            if direct_url:
+                self.download_lyrics.setChecked(False)
+
         def _emit_start(self) -> None:
-            media_format = "mp3" if self.convert_mp3.isChecked() else "mp4"
+            input_mode = "url" if self.mode_combo.currentText() == "Direct YouTube URL" else "search"
+            media_format = "mp3" if self.download_audio.isChecked() and not self.download_video.isChecked() else "mp4"
             self.startRequested.emit(
                 {
+                    "input_mode": input_mode,
                     "artist": self.artist_edit.text().strip(),
                     "title": self.title_edit.text().strip(),
+                    "youtube_url": self.url_edit.text().strip(),
                     "output": self.output_edit.text().strip(),
                     "format": media_format,
-                    "skip_media": not self.download_media.isChecked(),
+                    "download_lyrics": self.download_lyrics.isChecked(),
+                    "download_audio": self.download_audio.isChecked(),
+                    "download_video": self.download_video.isChecked(),
                     "cookie_browser": self.cookie_browser.currentText() if self.use_cookies.isChecked() else None,
                     "respect_wait": self.respect_wait.isChecked(),
                 }
@@ -243,6 +305,10 @@ if missing_dependency_error is None:
             self.start_btn.setEnabled(not running)
             self.progress.setValue(35 if running else 0)
             self.progress_label.setText("Running..." if running else "Ready")
+            self.txt_progress.setValue(0)
+            self.txt_progress_label.setText("TXT download 0%")
+            self.media_progress.setValue(0)
+            self.media_progress_label.setText("Media download 0%")
 
         def set_done(self) -> None:
             self.progress.setValue(100)
@@ -252,6 +318,16 @@ if missing_dependency_error is None:
         def set_progress(self, value: int, message: str) -> None:
             self.progress.setValue(max(0, min(100, value)))
             self.progress_label.setText(message)
+
+        def set_txt_progress(self, value: int, message: str) -> None:
+            percent = max(0, min(100, value))
+            self.txt_progress.setValue(percent)
+            self.txt_progress_label.setText(f"TXT download {percent}%")
+
+        def set_media_progress(self, value: int, message: str) -> None:
+            percent = max(0, min(100, value))
+            self.media_progress.setValue(percent)
+            self.media_progress_label.setText(f"Media download {percent}%")
 
 
     class SettingsPage(QWidget):
@@ -280,11 +356,14 @@ if missing_dependency_error is None:
 
             save_btn = PrimaryPushButton(FIF.SAVE, "Save credentials")
             save_btn.clicked.connect(self.save_credentials)
+            register_btn = PushButton(FIF.HOME, "Register USDB account")
+            register_btn.clicked.connect(self.open_usdb_registration)
 
             card_layout.addWidget(SubtitleLabel("USDB account"))
             card_layout.addWidget(self.user_edit)
             card_layout.addWidget(self.pass_edit)
             card_layout.addWidget(save_btn)
+            card_layout.addWidget(register_btn)
             layout.addWidget(card)
             layout.addStretch(1)
 
@@ -295,6 +374,9 @@ if missing_dependency_error is None:
             os.environ["USDB_PASS"] = password
             save_stored_credentials(username, password)
             InfoBar.success("Saved", "Credentials will be reused on future launches.", parent=self)
+
+        def open_usdb_registration(self) -> None:
+            QDesktopServices.openUrl(QUrl("https://usdb.animux.de/index.php?link=register"))
 
 
     class LogPage(QWidget):
@@ -316,16 +398,82 @@ if missing_dependency_error is None:
             self.text.clear()
 
 
+    class LibraryPage(QWidget):
+        def __init__(self) -> None:
+            super().__init__()
+            self.setObjectName("libraryPage")
+            self.root = Path.cwd() / "demo_output"
+            self._build_ui()
+            self.refresh()
+
+        def _build_ui(self) -> None:
+            layout = QVBoxLayout(self)
+            layout.setContentsMargins(34, 28, 34, 28)
+            layout.setSpacing(14)
+
+            layout.addWidget(TitleLabel("Song Library"))
+
+            self.root_edit = LineEdit()
+            self.root_edit.setPlaceholderText("Song library folder")
+            self.root_edit.setText(str(self.root))
+
+            root_row = QHBoxLayout()
+            root_row.addWidget(self.root_edit, 1)
+            browse_btn = PushButton(FIF.FOLDER, "Browse")
+            browse_btn.clicked.connect(self.choose_root)
+            refresh_btn = PushButton(FIF.FOLDER, "Refresh")
+            refresh_btn.clicked.connect(self.refresh)
+            root_row.addWidget(browse_btn)
+            root_row.addWidget(refresh_btn)
+            layout.addLayout(root_row)
+
+            self.summary_label = BodyLabel("0 songs")
+            layout.addWidget(self.summary_label)
+
+            self.table = QTableWidget(0, 5)
+            self.table.setHorizontalHeaderLabels(["Song", "TXT", "MP3", "MP4", "Folder"])
+            self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+            self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+            self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+            self.table.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeMode.Stretch)
+            layout.addWidget(self.table, 1)
+
+        def choose_root(self) -> None:
+            folder = QFileDialog.getExistingDirectory(self, "Choose song library folder", self.root_edit.text())
+            if folder:
+                self.root_edit.setText(folder)
+                self.refresh()
+
+        def set_root(self, root: Path) -> None:
+            self.root = root
+            self.root_edit.setText(str(root))
+            self.refresh()
+
+        def refresh(self) -> None:
+            self.root = Path(self.root_edit.text().strip() or Path.cwd() / "demo_output")
+            entries = scan_song_library(self.root)
+            self.table.setRowCount(len(entries))
+            for row, entry in enumerate(entries):
+                self.table.setItem(row, 0, QTableWidgetItem(entry.name))
+                self.table.setItem(row, 1, QTableWidgetItem("yes" if entry.has_txt else ""))
+                self.table.setItem(row, 2, QTableWidgetItem("yes" if entry.has_mp3 else ""))
+                self.table.setItem(row, 3, QTableWidgetItem("yes" if entry.has_mp4 else ""))
+                self.table.setItem(row, 4, QTableWidgetItem(str(entry.folder)))
+            self.summary_label.setText(f"{len(entries)} songs")
+
+
     class UltraStarFluentWindow(FluentWindow):
         def __init__(self) -> None:
             super().__init__()
             self.setWindowTitle("UltraStar Clone")
             self.resize(1060, 720)
             self.home = HomePage()
+            self.library = LibraryPage()
             self.settings = SettingsPage()
             self.logs = LogPage()
 
             self.addSubInterface(self.home, FIF.HOME, "Import")
+            self.addSubInterface(self.library, FIF.FOLDER, "Library")
             self.addSubInterface(self.logs, FIF.MESSAGE, "Logs")
             self.addSubInterface(self.settings, FIF.SETTING, "Settings")
 
@@ -337,7 +485,8 @@ if missing_dependency_error is None:
             stored = load_stored_credentials()
             username = os.getenv("USDB_USER") or stored.username
             password = os.getenv("USDB_PASS") or stored.password
-            if not username or not password:
+            needs_usdb = payload["input_mode"] == "search" or payload["download_lyrics"]
+            if needs_usdb and (not username or not password):
                 InfoBar.error(
                     "Missing credentials",
                     "Save your USDB username and password in Settings first.",
@@ -352,6 +501,11 @@ if missing_dependency_error is None:
                     payload["title"],
                     payload["format"],
                     target_root=Path(payload["output"]),
+                    input_mode=payload["input_mode"],
+                    youtube_url=payload["youtube_url"],
+                    download_lyrics=payload["download_lyrics"],
+                    download_audio=payload["download_audio"],
+                    download_video=payload["download_video"],
                 )
             except Exception as exc:
                 InfoBar.error("Invalid input", str(exc), position=InfoBarPosition.TOP_RIGHT, parent=self)
@@ -359,12 +513,12 @@ if missing_dependency_error is None:
 
             self.logs.append(f"[START] {request.artist} - {request.title}")
             self.home.set_running(True)
+            self.library.set_root(request.target_root or Path.cwd() / "demo_output")
             self.thread = QThread(self)
             self.worker = ImportWorker(
                 username,
                 password,
                 request,
-                skip_media=payload["skip_media"],
                 respect_wait=payload["respect_wait"],
                 cookie_browser=payload["cookie_browser"],
             )
@@ -372,6 +526,8 @@ if missing_dependency_error is None:
             self.thread.started.connect(self.worker.run)
             self.worker.log.connect(self.logs.append)
             self.worker.progress.connect(self.on_progress)
+            self.worker.txtProgress.connect(self.on_txt_progress)
+            self.worker.mediaProgress.connect(self.on_media_progress)
             self.worker.done.connect(self.on_done)
             self.worker.failed.connect(self.on_failed)
             self.worker.done.connect(self.thread.quit)
@@ -384,12 +540,22 @@ if missing_dependency_error is None:
             self.home.set_progress(value, message)
             self.logs.append(f"[PROGRESS] {value}% - {message}")
 
+        def on_txt_progress(self, value: int, message: str) -> None:
+            self.home.set_txt_progress(value, message)
+            self.logs.append(f"[TXT] {value}% - {message}")
+
+        def on_media_progress(self, value: int, message: str) -> None:
+            self.home.set_media_progress(value, message)
+            self.logs.append(f"[MEDIA] {value}% - {message}")
+
         def on_done(self, song_folder: str, txt_path: str, media_path: str) -> None:
             self.home.set_done()
             self.logs.append(f"[DONE] Song folder: {song_folder}")
-            self.logs.append(f"[DONE] TXT file: {txt_path}")
+            if txt_path:
+                self.logs.append(f"[DONE] TXT file: {txt_path}")
             if media_path:
                 self.logs.append(f"[DONE] Media file: {media_path}")
+            self.library.refresh()
             InfoBar.success("Import complete", song_folder, position=InfoBarPosition.TOP_RIGHT, parent=self)
 
         def on_failed(self, message: str) -> None:

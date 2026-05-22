@@ -52,6 +52,7 @@ class ControllerTests(unittest.TestCase):
             self.assertTrue(result.txt_path.exists())
             self.assertIsNotNone(result.media_path)
             self.assertTrue(result.media_path.exists())
+            self.assertEqual(len(result.media_paths), 1)
             content = result.txt_path.read_text(encoding="utf-8")
             self.assertIn("#MP3:Test Artist - Test Song.mp3", content)
 
@@ -66,6 +67,63 @@ class ControllerTests(unittest.TestCase):
             self.assertEqual(result.song_folder.name, "A_B - C_D")
             content = result.txt_path.read_text(encoding="utf-8")
             self.assertIn("#VIDEO:A_B - C_D.mp4", content)
+
+    def test_controller_imports_direct_url_audio_and_video_without_lyrics(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            tmp_path = Path(temp_dir)
+            settings = AppSettings(song_root=tmp_path, log_dir=tmp_path / "logs")
+            controller = ImportController(settings, None, FakeDownloader(), FakeConverter())
+
+            result = controller.import_song(
+                SongRequest(
+                    input_mode="url",
+                    youtube_url="https://www.youtube.com/watch?v=abc123",
+                    target_root=tmp_path,
+                    download_lyrics=False,
+                    download_audio=True,
+                    download_video=True,
+                )
+            )
+
+        self.assertEqual(result.song_folder.name, "YouTube - abc123")
+        self.assertIsNone(result.txt_path)
+        self.assertEqual([path.suffix for path in result.media_paths], [".mp3", ".mp4"])
+
+    def test_controller_rejects_direct_url_lyrics(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            tmp_path = Path(temp_dir)
+            settings = AppSettings(song_root=tmp_path, log_dir=tmp_path / "logs")
+            controller = ImportController(settings, None, FakeDownloader(), FakeConverter())
+
+            with self.assertRaisesRegex(ValueError, "Direct URL"):
+                controller.import_song(
+                    SongRequest(
+                        input_mode="url",
+                        youtube_url="https://www.youtube.com/watch?v=abc123",
+                        target_root=tmp_path,
+                        download_lyrics=True,
+                        download_audio=False,
+                        download_video=False,
+                    )
+                )
+
+    def test_controller_rejects_empty_download_selection(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            tmp_path = Path(temp_dir)
+            settings = AppSettings(song_root=tmp_path, log_dir=tmp_path / "logs")
+            controller = ImportController(settings, FakeScraper(), FakeDownloader(), FakeConverter())
+
+            with self.assertRaisesRegex(ValueError, "Select"):
+                controller.import_song(
+                    SongRequest(
+                        "Artist",
+                        "Title",
+                        target_root=tmp_path,
+                        download_lyrics=False,
+                        download_audio=False,
+                        download_video=False,
+                    )
+                )
 
 
 if __name__ == "__main__":

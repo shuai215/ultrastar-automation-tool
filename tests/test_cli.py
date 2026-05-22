@@ -16,8 +16,16 @@ class CliTests(unittest.TestCase):
 
         self.assertEqual(args.artist, 'Usher')
         self.assertEqual(args.title, 'U Remind Me')
+        self.assertEqual(args.mode, 'search')
         self.assertEqual(args.format, 'mp3')
         self.assertFalse(args.skip_media)
+
+    def test_parser_accepts_direct_url_args(self) -> None:
+        args = build_parser().parse_args(['--mode', 'url', '--youtube-url', 'https://youtu.be/abc', '--audio'])
+
+        self.assertEqual(args.mode, 'url')
+        self.assertEqual(args.youtube_url, 'https://youtu.be/abc')
+        self.assertTrue(args.audio)
 
     def test_main_requires_credentials(self) -> None:
         env = {key: value for key, value in os.environ.items() if key not in {'USDB_USER', 'USDB_PASS'}}
