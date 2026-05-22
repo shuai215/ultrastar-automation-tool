@@ -23,12 +23,21 @@ class StoredCredentials:
     password: str = ""
 
 
+@dataclass(frozen=True)
+class StoredPreferences:
+    theme: str = "auto"
+
+
 def default_log_dir() -> Path:
     return Path.home() / ".ultrastar_clone"
 
 
 def credentials_path() -> Path:
     return default_log_dir() / "credentials.json"
+
+
+def preferences_path() -> Path:
+    return default_log_dir() / "preferences.json"
 
 
 def load_stored_credentials(path: Path | None = None) -> StoredCredentials:
@@ -53,6 +62,30 @@ def save_stored_credentials(username: str, password: str, path: Path | None = No
         "password": password,
     }
     target.write_text(json.dumps(data, indent=2), encoding="utf-8")
+    return target
+
+
+def load_stored_preferences(path: Path | None = None) -> StoredPreferences:
+    target = path or preferences_path()
+    if not target.exists():
+        return StoredPreferences()
+    try:
+        data = json.loads(target.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return StoredPreferences()
+    theme = str(data.get("theme", "auto")).lower().strip()
+    if theme not in {"auto", "light", "dark"}:
+        theme = "auto"
+    return StoredPreferences(theme=theme)
+
+
+def save_stored_preferences(theme: str, path: Path | None = None) -> Path:
+    target = path or preferences_path()
+    target.parent.mkdir(parents=True, exist_ok=True)
+    normalized_theme = theme.lower().strip()
+    if normalized_theme not in {"auto", "light", "dark"}:
+        normalized_theme = "auto"
+    target.write_text(json.dumps({"theme": normalized_theme}, indent=2), encoding="utf-8")
     return target
 
 

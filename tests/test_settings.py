@@ -9,7 +9,12 @@ import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from ultrastar_clone.services.settings import load_stored_credentials, save_stored_credentials
+from ultrastar_clone.services.settings import (
+    load_stored_credentials,
+    load_stored_preferences,
+    save_stored_credentials,
+    save_stored_preferences,
+)
 
 
 class SettingsTests(unittest.TestCase):
@@ -39,6 +44,24 @@ class SettingsTests(unittest.TestCase):
 
         self.assertEqual(credentials.username, "")
         self.assertEqual(credentials.password, "")
+
+    def test_save_and_load_theme_preference(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            path = Path(temp_dir) / "preferences.json"
+
+            save_stored_preferences("dark", path)
+            preferences = load_stored_preferences(path)
+
+        self.assertEqual(preferences.theme, "dark")
+
+    def test_invalid_theme_preference_falls_back_to_auto(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            path = Path(temp_dir) / "preferences.json"
+
+            save_stored_preferences("blue", path)
+            preferences = load_stored_preferences(path)
+
+        self.assertEqual(preferences.theme, "auto")
 
 
 if __name__ == "__main__":

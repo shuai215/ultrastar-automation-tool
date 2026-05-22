@@ -18,8 +18,10 @@ from ultrastar_clone.services.logger import build_logger
 from ultrastar_clone.services.settings import (
     AppSettings,
     default_log_dir,
+    load_stored_preferences,
     load_stored_credentials,
     save_stored_credentials,
+    save_stored_preferences,
 )
 
 try:
@@ -67,6 +69,29 @@ class GuiDependencyError(RuntimeError):
 
 
 if missing_dependency_error is None:
+
+    THEME_LABELS = {
+        "auto": "Follow system",
+        "light": "Light",
+        "dark": "Dark",
+    }
+
+
+    def theme_from_key(theme_key: str):
+        if theme_key == "light":
+            return Theme.LIGHT
+        if theme_key == "dark":
+            return Theme.DARK
+        return Theme.AUTO
+
+
+    def theme_key_from_label(label: str) -> str:
+        normalized = label.strip().lower()
+        if normalized == "light":
+            return "light"
+        if normalized == "dark":
+            return "dark"
+        return "auto"
 
     class SignalLogger:
         def __init__(self, signal) -> None:
@@ -353,6 +378,11 @@ if missing_dependency_error is None:
             self.pass_edit = PasswordLineEdit()
             self.pass_edit.setPlaceholderText("USDB_PASS")
             self.pass_edit.setText(os.getenv("USDB_PASS", stored.password))
+            preferences = load_stored_preferences()
+            self.theme_combo = ComboBox()
+            self.theme_combo.addItems(list(THEME_LABELS.values()))
+            self.theme_combo.setCurrentText(THEME_LABELS.get(preferences.theme, THEME_LABELS["auto"]))
+            self.theme_combo.currentTextChanged.connect(self.apply_theme)
 
             save_btn = PrimaryPushButton(FIF.SAVE, "Save credentials")
             save_btn.clicked.connect(self.save_credentials)
@@ -364,6 +394,8 @@ if missing_dependency_error is None:
             card_layout.addWidget(self.pass_edit)
             card_layout.addWidget(save_btn)
             card_layout.addWidget(register_btn)
+            card_layout.addWidget(SubtitleLabel("Theme"))
+            card_layout.addWidget(self.theme_combo)
             layout.addWidget(card)
             layout.addStretch(1)
 
@@ -377,6 +409,11 @@ if missing_dependency_error is None:
 
         def open_usdb_registration(self) -> None:
             QDesktopServices.openUrl(QUrl("https://usdb.animux.de/index.php?link=register"))
+
+        def apply_theme(self, label: str) -> None:
+            theme_key = theme_key_from_label(label)
+            setTheme(theme_from_key(theme_key))
+            save_stored_preferences(theme_key)
 
 
     class LogPage(QWidget):
@@ -574,7 +611,7 @@ def main() -> None:
     import sys
 
     app = QApplication(sys.argv)
-    setTheme(Theme.AUTO)
+    setTheme(theme_from_key(load_stored_preferences().theme))
     window = UltraStarFluentWindow()
     window.show()
     sys.exit(app.exec())
