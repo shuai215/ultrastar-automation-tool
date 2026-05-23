@@ -6,13 +6,14 @@
 from __future__ import annotations
 
 import os
+from math import isfinite
 from pathlib import Path
 
 from ultrastar_clone.core.converter import NoMediaConverter, YtDlpConverter
 from ultrastar_clone.core.downloader import USDBTextDownloader
 from ultrastar_clone.core.playback_timeline import build_timed_lyrics, lyrics_at_position
 from ultrastar_clone.core.scraper import USDBScraper
-from ultrastar_clone.core.song_parser import parse_ultrastar_txt
+from ultrastar_clone.core.song_parser import Song, parse_ultrastar_txt
 from ultrastar_clone.models import SongRequest
 from ultrastar_clone.services.controller import ImportController
 from ultrastar_clone.services.library import scan_song_library
@@ -30,6 +31,16 @@ def format_media_time(milliseconds: int) -> str:
     minutes = total_seconds // 60
     seconds = total_seconds % 60
     return f"{minutes:02d}:{seconds:02d}"
+
+
+def describe_lyric_sync_status(song: Song, timed_lyrics: tuple) -> tuple[str, str]:
+    """Return status text and fallback current lyric text for parsed lyrics."""
+
+    if timed_lyrics:
+        return "Ready", ""
+    if song.bpm is None or not isfinite(song.bpm) or song.bpm <= 0:
+        return "Lyrics cannot sync because BPM is missing or invalid", "No synchronized lyrics"
+    return "No synchronized lyrics found in TXT", "No synchronized lyrics"
 
 
 try:
@@ -561,13 +572,18 @@ if missing_dependency_error is None:
 
             if entry.txt_path:
                 try:
-                    self.timed_lyrics = build_timed_lyrics(parse_ultrastar_txt(entry.txt_path))
+                    song = parse_ultrastar_txt(entry.txt_path)
+                    self.timed_lyrics = build_timed_lyrics(song)
                 except (OSError, UnicodeDecodeError, ValueError) as exc:
                     self.status_label.setText(f"Lyrics unavailable: {exc}")
+                    self.current_label.setText("No synchronized lyrics")
                 else:
-                    self.status_label.setText("Ready")
+                    lyric_status, current_text = describe_lyric_sync_status(song, self.timed_lyrics)
+                    self.status_label.setText(lyric_status)
+                    self.current_label.setText(current_text)
             else:
                 self.status_label.setText("No TXT lyrics found")
+                self.current_label.setText("No synchronized lyrics")
 
             media_path = entry.preferred_media_path
             if media_path is None:
