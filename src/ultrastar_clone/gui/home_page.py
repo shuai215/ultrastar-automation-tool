@@ -78,10 +78,8 @@ class HomePage(QWidget):
 
         self.artist_edit = LineEdit()
         self.artist_edit.setPlaceholderText("Artist")
-        self.artist_edit.setText("Coldplay")
         self.title_edit = LineEdit()
         self.title_edit.setPlaceholderText("Title")
-        self.title_edit.setText("Yellow")
         self.artist_edit.textChanged.connect(lambda _text: self.set_search_results([]))
         self.title_edit.textChanged.connect(lambda _text: self.set_search_results([]))
 

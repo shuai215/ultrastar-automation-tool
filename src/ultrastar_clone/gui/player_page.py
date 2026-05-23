@@ -5,10 +5,17 @@
 
 from __future__ import annotations
 
-from PyQt6.QtCore import QUrl, Qt, pyqtSignal
+from PyQt6.QtCore import QSize, QUrl, Qt, pyqtSignal
 from PyQt6.QtMultimedia import QAudioOutput, QMediaPlayer
 from PyQt6.QtMultimediaWidgets import QVideoWidget
-from PyQt6.QtWidgets import QHBoxLayout, QLabel, QSlider, QVBoxLayout, QWidget
+from PyQt6.QtWidgets import (
+    QHBoxLayout,
+    QLabel,
+    QSizePolicy,
+    QSlider,
+    QVBoxLayout,
+    QWidget,
+)
 from qfluentwidgets import PushButton, TitleLabel
 
 from ultrastar_clone.core.playback_timeline import build_timed_lyrics, lyrics_at_position
@@ -20,6 +27,38 @@ from ultrastar_clone.gui.utils import (
     lyric_display_payload,
 )
 from ultrastar_clone.gui.widgets import LyricDisplayWidget
+
+
+class _PlayerContainer(QWidget):
+    """16:9 video container with rounded corners and crop-to-fill."""
+
+    def __init__(
+        self,
+        video_widget: QVideoWidget,
+        audio_fallback: QLabel,
+        parent: QWidget | None = None,
+    ) -> None:
+        super().__init__(parent)
+        self._video = video_widget
+        self._audio_fallback = audio_fallback
+
+        inner = QVBoxLayout(self)
+        inner.setContentsMargins(0, 0, 0, 0)
+        inner.addWidget(video_widget)
+        inner.addWidget(audio_fallback)
+
+        video_widget.setAspectRatioMode(Qt.AspectRatioMode.KeepAspectRatioByExpanding)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self.setMinimumHeight(180)
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        if self.width() > 0:
+            h = int(self.width() * 9 / 16)
+            self.setMinimumHeight(h)
+            self.setMaximumHeight(h)
+        if not self._video.isHidden():
+            self._video.resize(self.width(), self.height())
 
 
 class PlayerPage(QWidget):
@@ -45,26 +84,43 @@ class PlayerPage(QWidget):
         layout.setContentsMargins(34, 28, 34, 28)
         layout.setSpacing(14)
 
+        # Top bar — navigation
+        top_bar = QHBoxLayout()
+        self.back_btn = PushButton("Back")
+        self.back_btn.clicked.connect(self.backRequested.emit)
         self.title_label = TitleLabel("Player")
-        self.status_label = QLabel("No song loaded")
-        layout.addWidget(self.title_label)
-        layout.addWidget(self.status_label)
+        top_bar.addWidget(self.back_btn)
+        top_bar.addWidget(self.title_label, 1)
+        layout.addLayout(top_bar)
 
+        # Video / audio area — 16:9 centered player with rounded corners
         self.video_widget = QVideoWidget()
         self.media_player.setVideoOutput(self.video_widget)
-        layout.addWidget(self.video_widget, 4)
+        self.video_widget.hide()
 
         self.audio_fallback = QLabel("Audio playback")
         self.audio_fallback.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(self.audio_fallback, 4)
-        self.video_widget.hide()
+        self.audio_fallback.hide()
 
+        self._player = _PlayerContainer(self.video_widget, self.audio_fallback, self)
+
+        player_row = QHBoxLayout()
+        player_row.addStretch(1)
+        player_row.addWidget(self._player, 8)
+        player_row.addStretch(1)
+        layout.addLayout(player_row, 4)
+
+        # Lyrics
         self.lyric_display = LyricDisplayWidget()
         layout.addWidget(self.lyric_display)
 
+        # Status — error only
+        self.status_label = QLabel("")
+        self.status_label.setVisible(False)
+        layout.addWidget(self.status_label)
+
+        # Bottom bar — playback controls
         controls = QHBoxLayout()
-        self.back_btn = PushButton("Back")
-        self.back_btn.clicked.connect(self.backRequested.emit)
         self.play_pause_btn = PushButton("Pause")
         self.play_pause_btn.clicked.connect(self.toggle_playback)
         self.progress_slider = QSlider(Qt.Orientation.Horizontal)
@@ -72,7 +128,6 @@ class PlayerPage(QWidget):
         self.progress_slider.sliderPressed.connect(self._on_slider_pressed)
         self.progress_slider.sliderReleased.connect(self._on_slider_released)
         self.time_label = QLabel("00:00 / 00:00")
-        controls.addWidget(self.back_btn)
         controls.addWidget(self.play_pause_btn)
         controls.addWidget(self.progress_slider, 1)
         controls.addWidget(self.time_label)
@@ -82,6 +137,7 @@ class PlayerPage(QWidget):
         self.stop()
         self.timed_lyrics = ()
         self.lyric_display.clear()
+        self.status_label.setVisible(False)
         title = entry.display_title
         if entry.display_artist:
             title = f"{entry.display_artist} - {title}"
@@ -93,18 +149,20 @@ class PlayerPage(QWidget):
                 self.timed_lyrics = build_timed_lyrics(song)
             except (OSError, UnicodeDecodeError, ValueError) as exc:
                 self.status_label.setText(f"Lyrics unavailable: {exc}")
+                self.status_label.setVisible(True)
                 self.lyric_display.set_lyrics("", "No synchronized lyrics", "")
             else:
-                lyric_status, current_text = describe_lyric_sync_status(song, self.timed_lyrics)
-                self.status_label.setText(lyric_status)
+                _, current_text = describe_lyric_sync_status(song, self.timed_lyrics)
                 self.lyric_display.set_lyrics("", current_text, "")
         else:
             self.status_label.setText("No TXT lyrics found")
+            self.status_label.setVisible(True)
             self.lyric_display.set_lyrics("", "No synchronized lyrics", "")
 
         media_path = entry.preferred_media_path
         if media_path is None:
             self.status_label.setText("No playable media found")
+            self.status_label.setVisible(True)
             return
 
         is_video = entry_uses_video_output(entry, media_path)
@@ -144,6 +202,7 @@ class PlayerPage(QWidget):
 
     def _on_error(self, *_args) -> None:
         self.status_label.setText(self.media_player.errorString() or "Playback error")
+        self.status_label.setVisible(True)
 
     def _on_slider_pressed(self) -> None:
         self._slider_dragging = True

@@ -117,6 +117,34 @@ def save_stored_preferences(
     return target
 
 
+def favorites_path() -> Path:
+    return default_log_dir() / "favorites.json"
+
+
+def load_favorites(path: Path | None = None) -> set[str]:
+    target = path or favorites_path()
+    if not target.exists():
+        return set()
+    try:
+        data = json.loads(target.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return set()
+    folders = data.get("folders", [])
+    if not isinstance(folders, list):
+        return set()
+    return {str(f) for f in folders}
+
+
+def save_favorites(folders: set[str], path: Path | None = None) -> Path:
+    target = path or favorites_path()
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(
+        json.dumps({"folders": sorted(folders)}, indent=2),
+        encoding="utf-8",
+    )
+    return target
+
+
 def default_song_root() -> Path:
     system = platform.system().lower()
     home = Path.home()

@@ -5,10 +5,13 @@
 
 from __future__ import annotations
 
+import re
 from math import isfinite
 from pathlib import Path
 
 from ultrastar_clone.core.song_parser import Song
+
+_DISPLAY_CLEANUP = re.compile(r"~+")
 
 
 def format_media_time(milliseconds: int) -> str:
@@ -39,19 +42,24 @@ def lyric_transition_required(previous_current: str, next_current: str) -> bool:
     return previous_current != next_current
 
 
+def _clean_display_lyric(text: str) -> str:
+    """Remove UltraStar formatting markers (e.g. ``~``) for display."""
+    return _DISPLAY_CLEANUP.sub("", text)
+
+
 def lyric_display_payload(window, position_ms: int) -> tuple[str, str, str]:
     """Return previous/current/next text without clearing the current line during gaps."""
 
     del position_ms
     if window.current:
-        previous = window.previous.text if window.previous else ""
-        current = window.current.text
-        next_line = window.next.text if window.next else ""
+        previous = _clean_display_lyric(window.previous.text) if window.previous else ""
+        current = _clean_display_lyric(window.current.text)
+        next_line = _clean_display_lyric(window.next.text) if window.next else ""
         return previous, current, next_line
 
     if window.previous:
-        next_line = window.next.text if window.next else ""
-        return "", window.previous.text, next_line
+        next_line = _clean_display_lyric(window.next.text) if window.next else ""
+        return "", _clean_display_lyric(window.previous.text), next_line
 
-    next_line = window.next.text if window.next else ""
+    next_line = _clean_display_lyric(window.next.text) if window.next else ""
     return "", "", next_line

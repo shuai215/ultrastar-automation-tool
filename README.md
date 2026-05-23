@@ -1,8 +1,6 @@
 # UltraStar Clone
 
-[中文版本](README_ZH.md)
-
-An UltraStar song import assistant — search USDB for lyrics, download UltraStar `.txt` files, and convert YouTube media via yt-dlp.
+An UltraStar song import assistant — search USDB for lyrics, download UltraStar `.txt` files, and convert YouTube media via yt-dlp. Built with PyQt6 + QFluentWidgets.
 
 ## Features
 
@@ -10,56 +8,22 @@ An UltraStar song import assistant — search USDB for lyrics, download UltraSta
 - **Direct URL** — Skip search, download media directly from a YouTube link
 - **Lyrics Download** — Fetch `.txt` lyric files from USDB
 - **Media Conversion** — yt-dlp convert YouTube videos to MP3/MP4
-- **Tag Editing** — Auto-update `#MP3`, `#VIDEO`, `#GAP` tags
-- **Local Library** — Scan and browse imported songs, built-in player with synced lyrics
-- **Persistent Settings** — Theme, output folder, download defaults, and credentials saved to `~/.ultrastar_clone/`
+- **Tag Editing** — Auto-update `#MP3`, `#VIDEO`, `#GAP` tags in lyric files
+- **Local Library** — Browse imported songs with TXT/MP3/MP4 status indicators, favorites (persistent), and delete
+- **Built-in Player** — 16:9 video playback with synchronized three-line lyrics display
+- **System Theme** — Follows OS light/dark mode, updates at runtime
+- **No Heavy Dependencies** — HTTP and HTML parsing use only Python stdlib (`urllib` + `re`)
 
-## Architecture
+## Requirements
 
-```
-src/ultrastar_clone/
-├── models.py               # Shared data models (SongRequest, SongMetadata, ImportResult)
-├── cli.py                  # CLI entry point
-├── gui_app.py              # GUI launcher
-│
-├── core/                   # Domain logic (no GUI deps)
-│   ├── scraper.py          # USDB login, search, detail-page parsing
-│   ├── downloader.py       # USDB lyrics download, wait-page handling
-│   ├── converter.py        # yt-dlp media download/convert (MP3/MP4)
-│   ├── editor.py           # UltraStar txt tag editing (#MP3/#VIDEO/#GAP)
-│   ├── song_parser.py      # UltraStar txt file parser
-│   └── playback_timeline.py # Lyric timing calculation
-│
-├── services/               # Application orchestration (no GUI deps)
-│   ├── controller.py       # Import pipeline (search → lyrics → media → tags)
-│   ├── settings.py         # Config paths, credentials/preferences persistence
-│   ├── library.py          # Local song folder scanner
-│   └── logger.py           # File + console logger factory
-│
-├── gui/                    # Qt UI (QFluentWidgets)
-│   ├── app.py              # Entry point, backward-compatible re-exports
-│   ├── main_window.py      # Main window, page navigation, signal wiring
-│   ├── home_page.py        # Import page (search USDB or paste YouTube URL)
-│   ├── library_page.py     # Library page (browse local songs)
-│   ├── player_page.py      # Player page (video/audio + synced lyrics)
-│   ├── settings_page.py    # Settings page (credentials, theme, import defaults)
-│   ├── log_page.py         # Log page
-│   ├── workers.py          # Background workers (ImportWorker, SearchWorker)
-│   ├── widgets.py          # Custom widgets (lyric display, table)
-│   └── utils.py            # Helper functions (no Qt dependency)
-│
-tests/                      # Unit tests (unittest)
+- Python >= 3.11
+- `yt-dlp` and `ffmpeg` on PATH
+
+```powershell
+pip install -r requirements.txt
 ```
 
 ## Quick Start
-
-### Install
-
-```powershell
-pip install -e ".[dev]"
-```
-
-External tools (required on PATH): `yt-dlp`, `ffmpeg`
 
 ### CLI
 
@@ -68,10 +32,10 @@ $env:PYTHONPATH='D:\GUI_shuai\src'
 $env:USDB_USER='your_user'
 $env:USDB_PASS='your_password'
 
-# Search mode
+# Search mode (lyrics + audio)
 python -m ultrastar_clone.cli --artist 'Coldplay' --title 'Yellow' --output demo_output
 
-# Direct URL mode
+# Direct URL mode (download video)
 python -m ultrastar_clone.cli --mode url --youtube-url 'https://...' --output demo_output --video
 
 # Lyrics only
@@ -87,14 +51,50 @@ $env:USDB_PASS='your_password'
 python -m ultrastar_clone.gui_app
 ```
 
-Four pages:
-
 | Page | Function |
 |------|----------|
-| **Import** | Search or paste YouTube URL, one-click import |
-| **Library** | Browse local songs, double-click to play |
-| **Settings** | Theme, output folder, download defaults, credentials |
-| **Log** | View import logs |
+| **Import** | Search USDB or paste YouTube URL, one-click import with progress |
+| **Library** | Browse local songs, favorite/delete, double-click or play button to open |
+| **Player** | 16:9 video/audio playback with synced lyrics, seek, pause/resume |
+| **Logs** | View import activity log |
+| **Settings** | Credentials, output folder, download defaults |
+
+## Architecture
+
+```
+src/ultrastar_clone/
+├── models.py               # Shared data models (SongRequest, SongMetadata, ImportResult)
+├── cli.py                  # CLI entry point
+├── gui_app.py              # GUI launcher
+
+├── core/                   # Domain logic (no GUI deps)
+│   ├── scraper.py          # USDB login, search, detail-page parsing (stdlib urllib + re)
+│   ├── downloader.py       # USDB lyrics download, wait-page handling
+│   ├── converter.py        # yt-dlp subprocess wrapper (MP3/MP4)
+│   ├── editor.py           # UltraStar txt tag editing (#MP3/#VIDEO/#GAP)
+│   ├── song_parser.py      # UltraStar txt file parser → Song dataclass
+│   └── playback_timeline.py # BPM → ms timeline, lyric window at playback position
+
+├── services/               # Application orchestration (no GUI deps)
+│   ├── controller.py       # Import pipeline: search → lyrics → media → tags
+│   ├── settings.py         # Config paths, credentials/preferences/favorites JSON persistence
+│   ├── library.py          # Local song folder scanner
+│   └── logger.py           # File + console logger
+
+├── gui/                    # Qt presentation layer
+│   ├── app.py              # Entry point, theme/palette sync
+│   ├── main_window.py      # FluentWindow: navigation, signal wiring, background threads
+│   ├── home_page.py        # Import page (search/paste URL, results table, progress)
+│   ├── library_page.py     # Library page (song table, favorites, delete)
+│   ├── player_page.py      # Player page (16:9 video, synced lyrics, controls)
+│   ├── settings_page.py    # Settings page (credentials, output, defaults)
+│   ├── log_page.py         # Log page (import activity)
+│   ├── workers.py          # QThread workers (ImportWorker, SearchWorker)
+│   ├── widgets.py          # Custom widgets (LyricDisplayWidget, AnimatedProgressBar)
+│   └── utils.py            # Helpers (lyric cleanup, time formatting)
+
+tests/                      # Unit tests (unittest, no network)
+```
 
 ## Tests
 
@@ -103,7 +103,22 @@ $env:PYTHONPATH='D:\GUI_shuai\src'
 python -m unittest discover -s tests -v
 ```
 
+Tests use fake implementations (no network calls) and `tempfile.TemporaryDirectory` for file I/O.
+
+## Configuration
+
+All data stored in `~/.ultrastar_clone/`:
+
+| File | Content |
+|------|---------|
+| `credentials.json` | USDB username/password |
+| `preferences.json` | Theme, output folder, download defaults |
+| `favorites.json` | Favorite song folder paths |
+
+Credentials can also be set via `USDB_USER` / `USDB_PASS` environment variables (takes priority).
+
 ## Notes
 
-- Credentials via env vars or settings page — **never hardcode them**
-- Songs save to the standard UltraStar song directory by default; customize in Settings
+- **Never hardcode credentials** — use env vars or the Settings page
+- Songs are saved to `demo_output/` by default; customize in Settings
+- The HTML scraper uses stdlib `re` — no BeautifulSoup or Requests needed
