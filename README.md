@@ -64,7 +64,7 @@ pip install PyQt6 PyQt6-Fluent-Widgets
 ```
 
 ```powershell
-$env:PYTHONPATH='C:\Users\Adam\Documents\Codex\2026-05-20\app\src'
+$env:PYTHONPATH='D:\GUI_shuai\src'
 $env:USDB_USER='your_user'
 $env:USDB_PASS='your_password'
 python -m ultrastar_clone.gui_app
