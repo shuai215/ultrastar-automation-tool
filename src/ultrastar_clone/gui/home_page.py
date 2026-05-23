@@ -147,21 +147,20 @@ class HomePage(QWidget):
         self.result_table.setVisible(is_search and self.result_table.rowCount() > 0)
 
     def _crossfade_widgets(self, widget: QWidget, visible: bool) -> None:
-        if widget.isVisible() == visible:
-            return
-        if visible:
+        old_effect = widget.graphicsEffect()
+        if isinstance(old_effect, QGraphicsOpacityEffect):
             widget.setGraphicsEffect(None)
+        if visible:
             widget.setVisible(True)
             return
         effect = QGraphicsOpacityEffect(widget)
-        effect.setOpacity(1.0)
         widget.setGraphicsEffect(effect)
         anim = QPropertyAnimation(effect, b"opacity")
         anim.setDuration(180)
         anim.setStartValue(1.0)
         anim.setEndValue(0.0)
         anim.setEasingCurve(QEasingCurve.Type.OutCubic)
-        anim.finished.connect(lambda: widget.setVisible(False))
+        anim.finished.connect(lambda w=widget: w.setVisible(False))
         anim.start()
 
     def set_search_results(self, candidates: list[dict]) -> None:
