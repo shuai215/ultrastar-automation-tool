@@ -10,6 +10,7 @@ from pathlib import Path
 from PyQt6.QtCore import Qt, pyqtSignal, QEasingCurve, QPropertyAnimation
 from PyQt6.QtWidgets import (
     QFrame,
+    QGraphicsOpacityEffect,
     QHeaderView,
     QScrollArea,
     QTableWidget,
@@ -66,19 +67,36 @@ class HomePage(QWidget):
         card_layout.setContentsMargins(22, 20, 22, 22)
         card_layout.setSpacing(12)
 
+        self.mode_combo = ComboBox()
+        self.mode_combo.addItems(["Search USDB", "Direct YouTube URL"])
+        card_layout.addWidget(self.mode_combo)
+
+        self._search_group = QWidget()
+        search_layout = QVBoxLayout(self._search_group)
+        search_layout.setContentsMargins(0, 0, 0, 0)
+        search_layout.setSpacing(10)
+
         self.artist_edit = LineEdit()
         self.artist_edit.setPlaceholderText("Artist")
         self.artist_edit.setText("Coldplay")
         self.title_edit = LineEdit()
         self.title_edit.setPlaceholderText("Title")
         self.title_edit.setText("Yellow")
-        self.mode_combo = ComboBox()
-        self.mode_combo.addItems(["Search USDB", "Direct YouTube URL"])
-        self.url_edit = LineEdit()
-        self.url_edit.setPlaceholderText("YouTube URL")
+        self.artist_edit.textChanged.connect(lambda _text: self.set_search_results([]))
+        self.title_edit.textChanged.connect(lambda _text: self.set_search_results([]))
 
         search_btn = PushButton(FIF.HOME, "Search USDB")
         search_btn.clicked.connect(self._emit_search)
+
+        search_layout.addWidget(self.artist_edit)
+        search_layout.addWidget(self.title_edit)
+        search_layout.addWidget(search_btn)
+        card_layout.addWidget(self._search_group)
+
+        self.url_edit = LineEdit()
+        self.url_edit.setPlaceholderText("https://www.youtube.com/watch?v=...")
+        self.url_edit.setVisible(False)
+        card_layout.addWidget(self.url_edit)
 
         self.result_table = PreferredRowsTable(6, 0, 3)
         self.result_table.setHorizontalHeaderLabels(["ID", "Artist", "Title"])
@@ -87,18 +105,12 @@ class HomePage(QWidget):
         self.result_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
         self.result_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
         self.result_table.setVisible(False)
-        self.artist_edit.textChanged.connect(lambda _text: self.set_search_results([]))
-        self.title_edit.textChanged.connect(lambda _text: self.set_search_results([]))
-
-        card_layout.addWidget(SubtitleLabel("Song"))
-        card_layout.addWidget(self.mode_combo)
-        card_layout.addWidget(self.artist_edit)
-        card_layout.addWidget(self.title_edit)
-        card_layout.addWidget(self.url_edit)
-        card_layout.addWidget(search_btn)
         card_layout.addWidget(self.result_table)
 
         content_layout.addWidget(card)
+
+        self.mode_combo.currentTextChanged.connect(self._sync_mode)
+        self._sync_mode(self.mode_combo.currentText())
 
         self.start_btn = PrimaryPushButton(FIF.PLAY, "Start import")
         self.start_btn.clicked.connect(self._emit_start)
@@ -125,6 +137,32 @@ class HomePage(QWidget):
                 "title": self.title_edit.text().strip(),
             }
         )
+
+    def _sync_mode(self, text: str) -> None:
+        is_search = text == "Search USDB"
+        self._crossfade_widgets(self._search_group, is_search)
+        self._crossfade_widgets(self.url_edit, not is_search)
+        if not is_search:
+            self.set_search_results([])
+        self.result_table.setVisible(is_search and self.result_table.rowCount() > 0)
+
+    def _crossfade_widgets(self, widget: QWidget, visible: bool) -> None:
+        if widget.isVisible() == visible:
+            return
+        if visible:
+            widget.setGraphicsEffect(None)
+            widget.setVisible(True)
+            return
+        effect = QGraphicsOpacityEffect(widget)
+        effect.setOpacity(1.0)
+        widget.setGraphicsEffect(effect)
+        anim = QPropertyAnimation(effect, b"opacity")
+        anim.setDuration(180)
+        anim.setStartValue(1.0)
+        anim.setEndValue(0.0)
+        anim.setEasingCurve(QEasingCurve.Type.OutCubic)
+        anim.finished.connect(lambda: widget.setVisible(False))
+        anim.start()
 
     def set_search_results(self, candidates: list[dict]) -> None:
         self.result_table.setRowCount(len(candidates))
