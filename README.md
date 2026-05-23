@@ -2,29 +2,53 @@
 
 [中文版本](README_ZH.md)
 
-An UltraStar song import assistant — search USDB for lyrics, download UltraStar `.txt` files, and convert YouTube media to MP3/MP4 via yt-dlp.
+An UltraStar song import assistant — search USDB for lyrics, download UltraStar `.txt` files, and convert YouTube media via yt-dlp.
 
 ## Features
 
 - **USDB Search** — Search by artist/title, select from result list
 - **Direct URL** — Skip search, download media directly from a YouTube link
 - **Lyrics Download** — Fetch `.txt` lyric files from USDB
-- **Media Conversion** — Download and convert YouTube videos to MP3/MP4
+- **Media Conversion** — yt-dlp convert YouTube videos to MP3/MP4
 - **Tag Editing** — Auto-update `#MP3`, `#VIDEO`, `#GAP` tags
-- **Local Library** — Scan local songs and preview with built-in player
-- **Persistence** — Theme, output folder, download defaults, and credentials saved to `~/.ultrastar_clone/`
+- **Local Library** — Scan and browse imported songs, built-in player with synced lyrics
+- **Persistent Settings** — Theme, output folder, download defaults, and credentials saved to `~/.ultrastar_clone/`
 
-## Project Structure
+## Architecture
 
 ```
 src/ultrastar_clone/
-├── core/           # Domain logic (scraper, downloader, converter, editor, parser, playback)
-├── services/       # Orchestration (controller, settings, library, logger)
-├── gui/            # Qt UI (app.py)
-├── models.py       # Shared data models
-├── cli.py          # CLI entry
-└── gui_app.py      # GUI launcher
-tests/              # Unit tests (unittest)
+├── models.py               # Shared data models (SongRequest, SongMetadata, ImportResult)
+├── cli.py                  # CLI entry point
+├── gui_app.py              # GUI launcher
+│
+├── core/                   # Domain logic (no GUI deps)
+│   ├── scraper.py          # USDB login, search, detail-page parsing
+│   ├── downloader.py       # USDB lyrics download, wait-page handling
+│   ├── converter.py        # yt-dlp media download/convert (MP3/MP4)
+│   ├── editor.py           # UltraStar txt tag editing (#MP3/#VIDEO/#GAP)
+│   ├── song_parser.py      # UltraStar txt file parser
+│   └── playback_timeline.py # Lyric timing calculation
+│
+├── services/               # Application orchestration (no GUI deps)
+│   ├── controller.py       # Import pipeline (search → lyrics → media → tags)
+│   ├── settings.py         # Config paths, credentials/preferences persistence
+│   ├── library.py          # Local song folder scanner
+│   └── logger.py           # File + console logger factory
+│
+├── gui/                    # Qt UI (QFluentWidgets)
+│   ├── app.py              # Entry point, backward-compatible re-exports
+│   ├── main_window.py      # Main window, page navigation, signal wiring
+│   ├── home_page.py        # Import page (search USDB or paste YouTube URL)
+│   ├── library_page.py     # Library page (browse local songs)
+│   ├── player_page.py      # Player page (video/audio + synced lyrics)
+│   ├── settings_page.py    # Settings page (credentials, theme, import defaults)
+│   ├── log_page.py         # Log page
+│   ├── workers.py          # Background workers (ImportWorker, SearchWorker)
+│   ├── widgets.py          # Custom widgets (lyric display, table)
+│   └── utils.py            # Helper functions (no Qt dependency)
+│
+tests/                      # Unit tests (unittest)
 ```
 
 ## Quick Start
