@@ -43,6 +43,11 @@ def describe_lyric_sync_status(song: Song, timed_lyrics: tuple) -> tuple[str, st
     return "No synchronized lyrics found in TXT", "No synchronized lyrics"
 
 
+def entry_uses_video_output(entry, media_path: Path) -> bool:
+    video_path = getattr(entry, "video_path", None)
+    return video_path is not None and Path(video_path) == Path(media_path)
+
+
 try:
     from PyQt6.QtCore import QObject, Qt, QThread, QUrl, pyqtSignal
     from PyQt6.QtGui import QDesktopServices
@@ -590,7 +595,7 @@ if missing_dependency_error is None:
                 self.status_label.setText("No playable media found")
                 return
 
-            is_video = media_path.suffix.lower() == ".mp4"
+            is_video = entry_uses_video_output(entry, media_path)
             self.video_widget.setVisible(is_video)
             self.audio_fallback.setVisible(not is_video)
             self.media_player.setSource(QUrl.fromLocalFile(str(media_path)))

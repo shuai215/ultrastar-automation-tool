@@ -190,6 +190,31 @@ class LibraryTests(unittest.TestCase):
                 with self.assertRaises(RuntimeError):
                     scan_song_library(root)
 
+    def test_scan_song_library_skips_unreadable_song_folder(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            unreadable = root / "Unreadable"
+            unreadable.mkdir()
+            valid = root / "Valid"
+            valid.mkdir()
+            media_path = valid / "song.mp3"
+            media_path.write_bytes(b"audio")
+
+            from ultrastar_clone.services import library
+
+            original_first_file = library._first_file
+
+            def first_file_or_unreadable(folder: Path, *patterns: str) -> Path | None:
+                if folder == unreadable:
+                    raise OSError("cannot read folder")
+                return original_first_file(folder, *patterns)
+
+            with patch("ultrastar_clone.services.library._first_file", side_effect=first_file_or_unreadable):
+                entries = scan_song_library(root)
+
+        self.assertEqual([entry.name for entry in entries], ["Valid"])
+        self.assertEqual(entries[0].preferred_media_path, media_path)
+
     def test_scan_missing_song_library_returns_empty_list(self) -> None:
         with TemporaryDirectory() as temp_dir:
             entries = scan_song_library(Path(temp_dir) / "missing")

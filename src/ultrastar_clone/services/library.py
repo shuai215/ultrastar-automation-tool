@@ -69,40 +69,57 @@ def scan_song_library(root: Path) -> list[SongLibraryEntry]:
         return []
 
     entries: list[SongLibraryEntry] = []
-    for folder in sorted((item for item in root.iterdir() if item.is_dir()), key=lambda item: item.name.lower()):
-        txt_path = _first_file(folder, "*.txt")
-        song, parse_error = _parse_song_metadata(txt_path)
-        mp3_path = _first_file(folder, "*.mp3")
-        mp4_path = _first_file(folder, "*.mp4")
-        audio_path = _tagged_file(folder, song.audio_filename if song else "") or mp3_path
-        video_path = _tagged_file(folder, song.video_filename if song else "") or mp4_path
-        cover_path = _tagged_file(folder, song.cover_filename if song else "") or _first_file(
-            folder,
-            "*.jpg",
-            "*.jpeg",
-            "*.png",
-        )
-        has_txt = txt_path is not None
-        has_mp3 = mp3_path is not None
-        has_mp4 = mp4_path is not None
-        if has_txt or audio_path is not None or video_path is not None:
-            entries.append(
-                SongLibraryEntry(
-                    name=folder.name,
-                    folder=folder,
-                    has_txt=has_txt,
-                    has_mp3=has_mp3,
-                    has_mp4=has_mp4,
-                    title=song.title if song else "",
-                    artist=song.artist if song else "",
-                    txt_path=txt_path,
-                    audio_path=audio_path,
-                    video_path=video_path,
-                    cover_path=cover_path,
-                    parse_error=parse_error,
-                )
-            )
+    folders = []
+    for item in root.iterdir():
+        try:
+            if item.is_dir():
+                folders.append(item)
+        except OSError:
+            continue
+
+    for folder in sorted(folders, key=lambda item: item.name.lower()):
+        try:
+            entry = _scan_song_folder(folder)
+        except OSError:
+            continue
+        if entry is not None:
+            entries.append(entry)
     return entries
+
+
+def _scan_song_folder(folder: Path) -> SongLibraryEntry | None:
+    txt_path = _first_file(folder, "*.txt")
+    song, parse_error = _parse_song_metadata(txt_path)
+    mp3_path = _first_file(folder, "*.mp3")
+    mp4_path = _first_file(folder, "*.mp4")
+    audio_path = _tagged_file(folder, song.audio_filename if song else "") or mp3_path
+    video_path = _tagged_file(folder, song.video_filename if song else "") or mp4_path
+    cover_path = _tagged_file(folder, song.cover_filename if song else "") or _first_file(
+        folder,
+        "*.jpg",
+        "*.jpeg",
+        "*.png",
+    )
+    has_txt = txt_path is not None
+    has_mp3 = mp3_path is not None
+    has_mp4 = mp4_path is not None
+    if not has_txt and audio_path is None and video_path is None:
+        return None
+
+    return SongLibraryEntry(
+        name=folder.name,
+        folder=folder,
+        has_txt=has_txt,
+        has_mp3=has_mp3,
+        has_mp4=has_mp4,
+        title=song.title if song else "",
+        artist=song.artist if song else "",
+        txt_path=txt_path,
+        audio_path=audio_path,
+        video_path=video_path,
+        cover_path=cover_path,
+        parse_error=parse_error,
+    )
 
 
 def _parse_song_metadata(txt_path: Path | None) -> tuple[Song | None, str | None]:
