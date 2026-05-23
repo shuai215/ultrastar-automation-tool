@@ -10,7 +10,6 @@ from pathlib import Path
 from PyQt6.QtCore import Qt, pyqtSignal, QEasingCurve, QPropertyAnimation
 from PyQt6.QtWidgets import (
     QFrame,
-    QGraphicsOpacityEffect,
     QHeaderView,
     QScrollArea,
     QTableWidget,
@@ -140,28 +139,11 @@ class HomePage(QWidget):
 
     def _sync_mode(self, text: str) -> None:
         is_search = text == "Search USDB"
-        self._crossfade_widgets(self._search_group, is_search)
-        self._crossfade_widgets(self.url_edit, not is_search)
+        self._search_group.setVisible(is_search)
+        self.url_edit.setVisible(not is_search)
         if not is_search:
             self.set_search_results([])
         self.result_table.setVisible(is_search and self.result_table.rowCount() > 0)
-
-    def _crossfade_widgets(self, widget: QWidget, visible: bool) -> None:
-        old_effect = widget.graphicsEffect()
-        if isinstance(old_effect, QGraphicsOpacityEffect):
-            widget.setGraphicsEffect(None)
-        if visible:
-            widget.setVisible(True)
-            return
-        effect = QGraphicsOpacityEffect(widget)
-        widget.setGraphicsEffect(effect)
-        anim = QPropertyAnimation(effect, b"opacity")
-        anim.setDuration(180)
-        anim.setStartValue(1.0)
-        anim.setEndValue(0.0)
-        anim.setEasingCurve(QEasingCurve.Type.OutCubic)
-        anim.finished.connect(lambda w=widget: w.setVisible(False))
-        anim.start()
 
     def set_search_results(self, candidates: list[dict]) -> None:
         self.result_table.setRowCount(len(candidates))
