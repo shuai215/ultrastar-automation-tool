@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PyQt6.QtCore import pyqtSignal, QEasingCurve, QPropertyAnimation
+from PyQt6.QtCore import Qt, pyqtSignal, QEasingCurve, QPropertyAnimation
 from PyQt6.QtWidgets import (
     QFrame,
     QHeaderView,
@@ -102,7 +102,7 @@ class HomePage(QWidget):
 
         self.start_btn = PrimaryPushButton(FIF.PLAY, "Start import")
         self.start_btn.clicked.connect(self._emit_start)
-        content_layout.addWidget(self.start_btn, alignment=1)
+        content_layout.addWidget(self.start_btn, alignment=Qt.AlignmentFlag.AlignCenter)
 
         self._progress_area = QWidget()
         self._progress_area.setVisible(False)
