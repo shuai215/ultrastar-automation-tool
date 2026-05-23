@@ -72,7 +72,12 @@ class LibraryPage(QWidget):
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
         self.table.horizontalHeader().setSectionResizeMode(5, QHeaderView.ResizeMode.Stretch)
+        self.table.cellDoubleClicked.connect(self._on_double_click)
         layout.addWidget(self.table, 1)
+
+    def _on_double_click(self, row: int, _col: int) -> None:
+        if 0 <= row < len(self.entries) and self.entries[row].is_playable:
+            self.playRequested.emit(self.entries[row])
 
     def choose_root(self) -> None:
         folder = QFileDialog.getExistingDirectory(self, "Choose song library folder", self.root_edit.text())
