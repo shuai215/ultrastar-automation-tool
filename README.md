@@ -1,67 +1,60 @@
-﻿# UltraStar Clone
+# UltraStar Clone
 
-Clean-room rebuild of an UltraStar song import assistant.
+UltraStar 歌曲导入助手 — 从 USDB 搜索歌词、下载 UltraStar `.txt` 文件，并通过 yt-dlp 将 YouTube 媒体转换为 MP3/MP4。
 
-The implementation is intentionally separate from the previous team project. We use the old project as a feature reference only.
+An UltraStar song import assistant — search USDB for lyrics, download UltraStar `.txt` files, and convert YouTube media to MP3/MP4 via yt-dlp.
 
-## Current State
+## 功能 / Features
 
-Implemented so far:
+- **USDB 搜索 / Search** — 按歌手/歌名搜索，支持从结果列表中选择 / Search by artist/title, select from result list
+- **直接 URL / Direct URL** — 跳过搜索，直接用 YouTube 链接下载媒体 / Skip search, download media directly from a YouTube link
+- **歌词下载 / Lyrics** — 从 USDB 获取 UltraStar `.txt` 歌词文件 / Fetch `.txt` lyric files from USDB
+- **媒体转换 / Media** — yt-dlp 下载 YouTube 视频并转为 MP3 或 MP4 / Download and convert YouTube videos to MP3/MP4
+- **标签编辑 / Tag editing** — 自动更新 `#MP3`、`#VIDEO`、`#GAP` 标签 / Auto-update UltraStar tags
+- **本地曲库 / Library** — 扫描已下载歌曲，内置播放器预览 / Scan local songs and preview with built-in player
+- **设置持久化 / Persistence** — 主题、输出目录、下载选项和凭据保存到 `~/.ultrastar_clone/` / Theme, output folder, download defaults, and credentials saved locally
 
-- Shared song data models
-- Settings paths and logger
-- UltraStar `.txt` editor
-  - update `#MP3` and `#VIDEO`
-  - read/write/adjust `#GAP`
-  - create and restore `.bak` files
-- USDB scraper
-  - login with session cookies
-  - search by artist/title
-  - parse `data-songid` result rows
-  - extract YouTube URL from detail page
-- USDB text downloader
-  - handles USDB waiting page
-  - submits `wd=1`
-  - extracts raw UltraStar text from `<textarea name="txt">`
-  - verifies `#ARTIST` and `#TITLE`
-- yt-dlp converter
-  - mp3 extraction
-  - mp4 download/merge
-  - ffmpeg and yt-dlp path checks
-- CLI demo
-- QFluentWidgets GUI prototype
-- Pipeline controller skeleton
-- Offline unit tests for core behavior
+## 项目结构 / Structure
 
-## Run Tests
-
-From this folder:
-
-```powershell
-$env:PYTHONPATH='D:\GUI_shuai\src'
-python -m unittest discover -s tests -v
+```
+src/ultrastar_clone/
+├── core/           # 领域逻辑 / domain logic (scraper, downloader, converter, editor, parser, playback)
+├── services/       # 应用编排 / orchestration (controller, settings, library, logger)
+├── gui/            # Qt 界面 / Qt UI (app.py)
+├── models.py       # 共享数据模型 / shared data models
+├── cli.py          # 命令行入口 / CLI entry
+└── gui_app.py      # GUI 启动入口 / GUI launcher
+tests/              # 单元测试 / unit tests (unittest)
 ```
 
-## Run CLI Demo
+## 快速开始 / Quick Start
 
-Credentials are read from environment variables, not source code:
+### 安装 / Install
+
+```powershell
+pip install -e ".[dev]"
+```
+
+外部依赖 / External tools (需在 PATH 中 / required on PATH): `yt-dlp`, `ffmpeg`
+
+### CLI
 
 ```powershell
 $env:PYTHONPATH='D:\GUI_shuai\src'
 $env:USDB_USER='your_user'
 $env:USDB_PASS='your_password'
-python -m ultrastar_clone.cli --artist 'Usher' --title 'U Remind Me' --output 'D:\GUI_shuai\demo_output' --skip-media
+
+# 搜索模式 / Search mode
+python -m ultrastar_clone.cli --artist 'Coldplay' --title 'Yellow' --output demo_output
+
+# 直接 URL 模式 / Direct URL mode
+python -m ultrastar_clone.cli --mode url --youtube-url 'https://...' --output demo_output --video
+
+# 仅下载歌词 / Lyrics only
+python -m ultrastar_clone.cli --artist 'Usher' --title 'U Remind Me' --output demo_output --skip-media
 ```
 
-Remove `--skip-media` to also download/convert the YouTube media file.
-
-## Run QFluentWidgets GUI
-
-Install GUI dependencies first:
-
-```powershell
-pip install PyQt6 PyQt6-Fluent-Widgets
-```
+### GUI
 
 ```powershell
 $env:PYTHONPATH='D:\GUI_shuai\src'
@@ -70,17 +63,23 @@ $env:USDB_PASS='your_password'
 python -m ultrastar_clone.gui_app
 ```
 
-The first Fluent GUI version includes navigation, an import page, a settings page for session credentials, and a log page. In the import page, keep `Download media` checked to download a video file by default. Check `Convert to MP3 audio only` when you want the video source converted into an audio file instead.
+GUI 包含四个页面 / Four pages:
 
-## External Tools
+| 页面 / Page | 功能 / Function |
+|-------------|-----------------|
+| **Import** | 搜索歌曲或输入 YouTube URL，一键导入 / Search or paste YouTube URL, one-click import |
+| **Library** | 浏览本地曲库，双击播放 / Browse local songs, double-click to play |
+| **Settings** | 主题、输出目录、下载默认值、USDB 凭据 / Theme, output folder, download defaults, credentials |
+| **Log** | 查看导入日志 / View import logs |
 
-The converter expects these commands on PATH:
+## 运行测试 / Tests
 
 ```powershell
-yt-dlp --version
-ffmpeg -version
+$env:PYTHONPATH='D:\GUI_shuai\src'
+python -m unittest discover -s tests -v
 ```
 
-## Security Note
+## 注意事项 / Notes
 
-USDB credentials should not be written into source code. Use temporary environment variables or, later, the app settings UI.
+- USDB 凭据通过环境变量或设置页面输入，**不要硬编码在源码中** / Credentials via env vars or settings page — **never hardcode them**
+- 导入的歌曲默认保存到 UltraStar 标准歌曲目录，可在设置中自定义 / Songs save to the standard UltraStar song directory by default; customize in Settings
