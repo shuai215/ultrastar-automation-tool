@@ -8,14 +8,7 @@ from __future__ import annotations
 from PyQt6.QtCore import QUrl, Qt, pyqtSignal
 from PyQt6.QtMultimedia import QAudioOutput, QMediaPlayer
 from PyQt6.QtMultimediaWidgets import QVideoWidget
-from PyQt6.QtWidgets import (
-    QHBoxLayout,
-    QLabel,
-    QSlider,
-    QStackedLayout,
-    QVBoxLayout,
-    QWidget,
-)
+from PyQt6.QtWidgets import QHBoxLayout, QLabel, QSlider, QVBoxLayout, QWidget
 from qfluentwidgets import PushButton, TitleLabel
 
 from ultrastar_clone.core.playback_timeline import build_timed_lyrics, lyrics_at_position
@@ -50,48 +43,24 @@ class PlayerPage(QWidget):
     def _build_ui(self) -> None:
         layout = QVBoxLayout(self)
         layout.setContentsMargins(34, 28, 34, 28)
-        layout.setSpacing(12)
+        layout.setSpacing(14)
 
         self.title_label = TitleLabel("Player")
         self.status_label = QLabel("No song loaded")
         layout.addWidget(self.title_label)
         layout.addWidget(self.status_label)
 
-        media_container = QWidget()
-        media_layout = QStackedLayout(media_container)
-        media_layout.setStackingMode(QStackedLayout.StackingMode.StackAll)
-        media_layout.setContentsMargins(0, 0, 0, 0)
-
         self.video_widget = QVideoWidget()
         self.media_player.setVideoOutput(self.video_widget)
-        media_layout.addWidget(self.video_widget)
+        layout.addWidget(self.video_widget, 4)
 
         self.audio_fallback = QLabel("Audio playback")
         self.audio_fallback.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.audio_fallback.setStyleSheet("background: #1a1a1a; color: #888; font-size: 18px;")
-        media_layout.addWidget(self.audio_fallback)
+        layout.addWidget(self.audio_fallback, 4)
+        self.video_widget.hide()
 
-        self._overlay = QWidget()
-        self._overlay.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
-        overlay_layout = QVBoxLayout(self._overlay)
-        overlay_layout.setContentsMargins(0, 0, 0, 12)
-        overlay_layout.addStretch(3)
-
-        lyric_bg = QWidget()
-        lyric_bg.setStyleSheet("background: rgba(0, 0, 0, 0.55); border-radius: 10px;")
-        lyric_bg_layout = QVBoxLayout(lyric_bg)
-        lyric_bg_layout.setContentsMargins(16, 10, 16, 10)
         self.lyric_display = LyricDisplayWidget()
-        self.lyric_display.previous_label.setStyleSheet("color: #bbb; font-size: 13px; background: transparent;")
-        self.lyric_display.current_label.setStyleSheet("font-size: 22px; font-weight: 600; background: transparent;")
-        self.lyric_display.next_label.setStyleSheet("color: #bbb; font-size: 13px; background: transparent;")
-        lyric_bg_layout.addWidget(self.lyric_display)
-        overlay_layout.addWidget(lyric_bg)
-        overlay_layout.addStretch(1)
-
-        media_layout.addWidget(self._overlay)
-
-        layout.addWidget(media_container, 4)
+        layout.addWidget(self.lyric_display)
 
         controls = QHBoxLayout()
         self.back_btn = PushButton("Back")
