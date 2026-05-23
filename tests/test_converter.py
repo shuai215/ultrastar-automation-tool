@@ -78,7 +78,13 @@ class ConverterTests(unittest.TestCase):
         command = runner.commands[0]
         self.assertIn('--merge-output-format', command)
         self.assertIn('mp4', command)
-        self.assertIn('worst[ext=mp4][vcodec!=none]/18/worst[vcodec!=none]/worst', command)
+        self.assertIn(
+            'bestvideo[height<=1080][ext=mp4][vcodec!=none]+bestaudio[ext=m4a]/'
+            'best[height<=1080][ext=mp4]/'
+            'bestvideo[height<=720][vcodec!=none]+bestaudio/'
+            'best[height<=720]/18',
+            command,
+        )
         self.assertEqual(path.name, 'Artist - Video Song.mp4')
 
     def test_convert_can_use_browser_cookies(self) -> None:

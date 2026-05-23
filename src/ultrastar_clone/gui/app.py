@@ -50,8 +50,43 @@ def entry_uses_video_output(entry, media_path: Path) -> bool:
     return video_path is not None and Path(video_path) == Path(media_path)
 
 
+def lyric_transition_required(previous_current: str, next_current: str) -> bool:
+    """Return whether a lyric text update should animate."""
+
+    return previous_current != next_current
+
+
+def lyric_display_payload(window, position_ms: int) -> tuple[str, str, str]:
+    """Return previous/current/next text without clearing the current line during gaps."""
+
+    del position_ms
+    if window.current:
+        previous = window.previous.text if window.previous else ""
+        current = window.current.text
+        next_line = window.next.text if window.next else ""
+        return previous, current, next_line
+
+    if window.previous:
+        next_line = window.next.text if window.next else ""
+        return "", window.previous.text, next_line
+
+    next_line = window.next.text if window.next else ""
+    return "", "", next_line
+
+
 try:
-    from PyQt6.QtCore import QObject, Qt, QThread, QUrl, pyqtSignal
+    from PyQt6.QtCore import (
+        QAbstractAnimation,
+        QEasingCurve,
+        QPoint,
+        QObject,
+        QPropertyAnimation,
+        QSize,
+        Qt,
+        QThread,
+        QUrl,
+        pyqtSignal,
+    )
     from PyQt6.QtGui import QDesktopServices
     from PyQt6.QtMultimedia import QAudioOutput, QMediaPlayer
     from PyQt6.QtMultimediaWidgets import QVideoWidget
@@ -62,6 +97,7 @@ try:
         QHBoxLayout,
         QHeaderView,
         QLabel,
+        QScrollArea,
         QSlider,
         QTableWidget,
         QTableWidgetItem,
@@ -156,14 +192,12 @@ if missing_dependency_error is None:
             password: str | None,
             request: SongRequest,
             respect_wait: bool,
-            cookie_browser: str | None,
         ) -> None:
             super().__init__()
             self.username = username
             self.password = password
             self.request = request
             self.respect_wait = respect_wait
-            self.cookie_browser = cookie_browser
 
         def run(self) -> None:
             try:
@@ -197,7 +231,6 @@ if missing_dependency_error is None:
                     if not self.request.download_audio and not self.request.download_video
                     else YtDlpConverter(
                         progress_callback=self._media_progress,
-                        cookies_from_browser=self.cookie_browser,
                     )
                 )
                 controller = ImportController(settings, scraper, downloader, converter, logger=CombinedLogger())
@@ -224,8 +257,138 @@ if missing_dependency_error is None:
                 self.txtProgress.emit(100, "TXT download complete")
 
 
+    class SearchWorker(QObject):
+        candidates = pyqtSignal(list)
+        failed = pyqtSignal(str)
+
+        def __init__(self, username: str, password: str, artist: str, title: str) -> None:
+            super().__init__()
+            self.username = username
+            self.password = password
+            self.artist = artist
+            self.title = title
+
+        def run(self) -> None:
+            try:
+                scraper = USDBScraper(self.username, self.password)
+                request = SongRequest(self.artist, self.title, download_lyrics=True, download_audio=False, download_video=False)
+                results = [
+                    {
+                        "song_id": candidate.song_id,
+                        "artist": candidate.artist,
+                        "title": candidate.title,
+                    }
+                    for candidate in scraper.search(request)
+                ]
+                self.candidates.emit(results)
+            except Exception as exc:
+                self.failed.emit(str(exc))
+
+
+    class LyricDisplayWidget(QWidget):
+        """Three-line lyric display with a short scroll transition."""
+
+        def __init__(self) -> None:
+            super().__init__()
+            self._current_text = ""
+
+            layout = QVBoxLayout(self)
+            layout.setContentsMargins(0, 0, 0, 0)
+            layout.setSpacing(0)
+
+            self._viewport = QWidget()
+            self._viewport.setMinimumHeight(104)
+            layout.addWidget(self._viewport)
+
+            self._line_group = QWidget(self._viewport)
+            group_layout = QVBoxLayout(self._line_group)
+            group_layout.setContentsMargins(0, 0, 0, 0)
+            group_layout.setSpacing(5)
+
+            self.previous_label = QLabel("")
+            self.current_label = QLabel("")
+            self.next_label = QLabel("")
+            for label in (self.previous_label, self.current_label, self.next_label):
+                label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+                label.setWordWrap(True)
+
+            self.previous_label.setStyleSheet("color: #8a8a8a; font-size: 14px;")
+            self.current_label.setStyleSheet("font-size: 24px; font-weight: 600;")
+            self.next_label.setStyleSheet("color: #8a8a8a; font-size: 14px;")
+
+            group_layout.addWidget(self.previous_label)
+            group_layout.addWidget(self.current_label)
+            group_layout.addWidget(self.next_label)
+
+            self._slide_animation = QPropertyAnimation(self._line_group, b"pos", self)
+            self._slide_animation.setDuration(220)
+            self._slide_animation.setEasingCurve(QEasingCurve.Type.OutCubic)
+
+        def clear(self) -> None:
+            self._stop_animation()
+            self._current_text = ""
+            self.previous_label.clear()
+            self.current_label.clear()
+            self.next_label.clear()
+            self._position_line_group()
+
+        def set_lyrics(self, previous: str, current: str, next_line: str) -> None:
+            previous = previous or ""
+            current = current or ""
+            next_line = next_line or ""
+            should_animate = lyric_transition_required(self._current_text, current)
+            self._current_text = current
+
+            self.previous_label.setText(previous)
+            self.current_label.setText(current)
+            self.next_label.setText(next_line)
+            self._position_line_group()
+
+            if should_animate:
+                self._run_transition()
+
+        def resizeEvent(self, event) -> None:
+            super().resizeEvent(event)
+            self._position_line_group()
+
+        def _run_transition(self) -> None:
+            self._stop_animation()
+            self._position_line_group()
+            end_pos = self._line_group.pos()
+            start_pos = end_pos + QPoint(0, 18)
+            self._line_group.move(start_pos)
+
+            self._slide_animation.setStartValue(start_pos)
+            self._slide_animation.setEndValue(end_pos)
+            self._slide_animation.start()
+
+        def _stop_animation(self) -> None:
+            if self._slide_animation.state() == QAbstractAnimation.State.Running:
+                self._slide_animation.stop()
+
+        def _position_line_group(self) -> None:
+            width = max(1, self._viewport.width())
+            self._line_group.resize(width, self._line_group.sizeHint().height())
+            y = max(0, (self._viewport.height() - self._line_group.height()) // 2)
+            self._line_group.move(0, y)
+
+
+    class PreferredRowsTable(QTableWidget):
+        def __init__(self, preferred_rows: int, rows: int, columns: int) -> None:
+            super().__init__(rows, columns)
+            self.preferred_rows = preferred_rows
+
+        def sizeHint(self) -> QSize:
+            hint = super().sizeHint()
+            row_height = self.verticalHeader().defaultSectionSize()
+            header_height = self.horizontalHeader().height()
+            preferred_height = header_height + row_height * self.preferred_rows + 8
+            return QSize(hint.width(), max(hint.height(), preferred_height))
+
+
     class HomePage(QWidget):
         startRequested = pyqtSignal(dict)
+        searchRequested = pyqtSignal(dict)
 
         def __init__(self) -> None:
             super().__init__()
@@ -234,13 +397,24 @@ if missing_dependency_error is None:
 
         def _build_ui(self) -> None:
             layout = QVBoxLayout(self)
-            layout.setContentsMargins(34, 28, 34, 28)
-            layout.setSpacing(18)
+            layout.setContentsMargins(0, 0, 0, 0)
+            layout.setSpacing(0)
+
+            scroll_area = QScrollArea(self)
+            scroll_area.setWidgetResizable(True)
+            scroll_area.setFrameShape(QFrame.Shape.NoFrame)
+            content = QWidget()
+            layout.addWidget(scroll_area)
+            scroll_area.setWidget(content)
+
+            content_layout = QVBoxLayout(content)
+            content_layout.setContentsMargins(34, 28, 34, 28)
+            content_layout.setSpacing(18)
 
             title = TitleLabel("UltraStar Import")
             subtitle = BodyLabel("Search USDB, download the UltraStar txt file, and optionally convert media.")
-            layout.addWidget(title)
-            layout.addWidget(subtitle)
+            content_layout.addWidget(title)
+            content_layout.addWidget(subtitle)
 
             card = CardWidget(self)
             card_layout = QVBoxLayout(card)
@@ -255,43 +429,11 @@ if missing_dependency_error is None:
             self.title_edit.setText("Yellow")
             self.mode_combo = ComboBox()
             self.mode_combo.addItems(["Search USDB", "Direct YouTube URL"])
-            self.mode_combo.currentTextChanged.connect(self._sync_input_mode)
             self.url_edit = LineEdit()
             self.url_edit.setPlaceholderText("YouTube URL")
-            self.output_edit = LineEdit()
-            self.output_edit.setPlaceholderText("Output folder")
-            self.output_edit.setText(str(Path.cwd() / "demo_output"))
 
-            output_row = QHBoxLayout()
-            output_row.addWidget(self.output_edit, 1)
-            browse_btn = PushButton(FIF.FOLDER, "Browse")
-            browse_btn.clicked.connect(self._choose_output)
-            output_row.addWidget(browse_btn)
-
-            self.download_lyrics = CheckBox("Download lyrics TXT")
-            self.download_lyrics.setChecked(True)
-            self.download_audio = CheckBox("Download MP3 audio")
-            self.download_audio.setChecked(False)
-            self.download_video = CheckBox("Download video MP4")
-            self.download_video.setChecked(True)
-            self.use_cookies = CheckBox("Use browser cookies")
-            self.use_cookies.setChecked(False)
-            self.cookie_browser = ComboBox()
-            self.cookie_browser.addItems(["chrome", "edge", "firefox"])
-            self.respect_wait = CheckBox("Respect USDB wait")
-            self.respect_wait.setChecked(True)
-
-            option_row = QHBoxLayout()
-            option_row.addWidget(self.download_lyrics)
-            option_row.addWidget(self.download_audio)
-            option_row.addWidget(self.download_video)
-            option_row.addStretch(1)
-
-            media_option_row = QHBoxLayout()
-            media_option_row.addWidget(self.use_cookies)
-            media_option_row.addWidget(self.cookie_browser)
-            media_option_row.addWidget(self.respect_wait)
-            media_option_row.addStretch(1)
+            search_btn = PushButton(FIF.HOME, "Search USDB")
+            search_btn.clicked.connect(self._emit_search)
 
             self.start_btn = PrimaryPushButton(FIF.PLAY, "Start import")
             self.start_btn.clicked.connect(self._emit_start)
@@ -311,48 +453,78 @@ if missing_dependency_error is None:
             card_layout.addWidget(self.artist_edit)
             card_layout.addWidget(self.title_edit)
             card_layout.addWidget(self.url_edit)
-            card_layout.addWidget(SubtitleLabel("Destination"))
-            card_layout.addLayout(output_row)
-            card_layout.addLayout(option_row)
-            card_layout.addLayout(media_option_row)
+            card_layout.addWidget(search_btn)
+            self.result_table = PreferredRowsTable(6, 0, 3)
+            self.result_table.setHorizontalHeaderLabels(["ID", "Artist", "Title"])
+            self.result_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+            self.result_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+            self.result_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+            self.result_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
+            row_height = self.result_table.verticalHeader().defaultSectionSize()
+            header_height = self.result_table.horizontalHeader().height()
+            self.result_table.setFixedHeight(header_height + row_height * 6 + 8)
+            card_layout.addWidget(self.result_table)
+            self.artist_edit.textChanged.connect(lambda _text: self.set_search_results([]))
+            self.title_edit.textChanged.connect(lambda _text: self.set_search_results([]))
+            card_layout.addWidget(self.start_btn)
             card_layout.addWidget(self.progress_label)
             card_layout.addWidget(self.progress)
             card_layout.addWidget(self.txt_progress_label)
             card_layout.addWidget(self.txt_progress)
             card_layout.addWidget(self.media_progress_label)
             card_layout.addWidget(self.media_progress)
-            card_layout.addWidget(self.start_btn)
-            layout.addWidget(card)
-            layout.addStretch(1)
-            self._sync_input_mode()
+            content_layout.addWidget(card)
+            content_layout.addStretch(1)
 
-        def _choose_output(self) -> None:
-            folder = QFileDialog.getExistingDirectory(self, "Choose output folder", self.output_edit.text())
-            if folder:
-                self.output_edit.setText(folder)
+        def _emit_search(self) -> None:
+            self.searchRequested.emit(
+                {
+                    "artist": self.artist_edit.text().strip(),
+                    "title": self.title_edit.text().strip(),
+                }
+            )
 
-        def _sync_input_mode(self) -> None:
-            direct_url = self.mode_combo.currentText() == "Direct YouTube URL"
-            self.download_lyrics.setEnabled(not direct_url)
-            if direct_url:
-                self.download_lyrics.setChecked(False)
+        def set_search_results(self, candidates: list[dict]) -> None:
+            self.result_table.setRowCount(len(candidates))
+            for row, candidate in enumerate(candidates):
+                self.result_table.setItem(row, 0, QTableWidgetItem(candidate["song_id"]))
+                self.result_table.setItem(row, 1, QTableWidgetItem(candidate["artist"]))
+                self.result_table.setItem(row, 2, QTableWidgetItem(candidate["title"]))
+            if candidates:
+                self.result_table.selectRow(0)
+
+        def selected_candidate(self) -> dict | None:
+            row = self.result_table.currentRow()
+            if row < 0:
+                return None
+            return {
+                "song_id": self.result_table.item(row, 0).text(),
+                "artist": self.result_table.item(row, 1).text(),
+                "title": self.result_table.item(row, 2).text(),
+            }
 
         def _emit_start(self) -> None:
+            prefs = load_stored_preferences()
             input_mode = "url" if self.mode_combo.currentText() == "Direct YouTube URL" else "search"
-            media_format = "mp3" if self.download_audio.isChecked() and not self.download_video.isChecked() else "mp4"
+            selected = self.selected_candidate() if input_mode == "search" else None
+            artist = selected["artist"] if selected else self.artist_edit.text().strip()
+            title = selected["title"] if selected else self.title_edit.text().strip()
+            download_lyrics = prefs.download_lyrics if input_mode == "search" else False
+            media_format = "mp3" if prefs.download_audio and not prefs.download_video else "mp4"
+            output = prefs.output_folder or str(Path.cwd() / "demo_output")
             self.startRequested.emit(
                 {
                     "input_mode": input_mode,
-                    "artist": self.artist_edit.text().strip(),
-                    "title": self.title_edit.text().strip(),
+                    "artist": artist,
+                    "title": title,
+                    "selected_song_id": selected["song_id"] if selected else None,
                     "youtube_url": self.url_edit.text().strip(),
-                    "output": self.output_edit.text().strip(),
+                    "output": output,
                     "format": media_format,
-                    "download_lyrics": self.download_lyrics.isChecked(),
-                    "download_audio": self.download_audio.isChecked(),
-                    "download_video": self.download_video.isChecked(),
-                    "cookie_browser": self.cookie_browser.currentText() if self.use_cookies.isChecked() else None,
-                    "respect_wait": self.respect_wait.isChecked(),
+                    "download_lyrics": download_lyrics,
+                    "download_audio": prefs.download_audio,
+                    "download_video": prefs.download_video,
+                    "respect_wait": prefs.respect_wait,
                 }
             )
 
@@ -389,17 +561,28 @@ if missing_dependency_error is None:
         def __init__(self) -> None:
             super().__init__()
             self.setObjectName("settingsPage")
+            self._prefs_dirty = False
             layout = QVBoxLayout(self)
             layout.setContentsMargins(34, 28, 34, 28)
             layout.setSpacing(18)
 
             layout.addWidget(TitleLabel("Settings"))
-            layout.addWidget(BodyLabel("Save your USDB login once and reuse it on future launches."))
 
-            card = CardWidget(self)
-            card_layout = QVBoxLayout(card)
-            card_layout.setContentsMargins(22, 20, 22, 22)
-            card_layout.setSpacing(12)
+            scroll_area = QScrollArea(self)
+            scroll_area.setWidgetResizable(True)
+            scroll_area.setFrameShape(QFrame.Shape.NoFrame)
+            scroll_content = QWidget()
+            scroll_area.setWidget(scroll_content)
+            scroll_layout = QVBoxLayout(scroll_content)
+            scroll_layout.setContentsMargins(0, 0, 0, 0)
+            scroll_layout.setSpacing(18)
+            layout.addWidget(scroll_area, 1)
+
+            # USDB account card
+            cred_card = CardWidget(self)
+            cred_layout = QVBoxLayout(cred_card)
+            cred_layout.setContentsMargins(22, 20, 22, 22)
+            cred_layout.setSpacing(12)
 
             self.user_edit = LineEdit()
             self.user_edit.setPlaceholderText("USDB_USER")
@@ -414,20 +597,68 @@ if missing_dependency_error is None:
             self.theme_combo.setCurrentText(THEME_LABELS.get(preferences.theme, THEME_LABELS["auto"]))
             self.theme_combo.currentTextChanged.connect(self.apply_theme)
 
-            save_btn = PrimaryPushButton(FIF.SAVE, "Save credentials")
-            save_btn.clicked.connect(self.save_credentials)
+            save_cred_btn = PrimaryPushButton(FIF.SAVE, "Save credentials")
+            save_cred_btn.clicked.connect(self.save_credentials)
             register_btn = PushButton(FIF.HOME, "Register USDB account")
             register_btn.clicked.connect(self.open_usdb_registration)
 
-            card_layout.addWidget(SubtitleLabel("USDB account"))
-            card_layout.addWidget(self.user_edit)
-            card_layout.addWidget(self.pass_edit)
-            card_layout.addWidget(save_btn)
-            card_layout.addWidget(register_btn)
-            card_layout.addWidget(SubtitleLabel("Theme"))
-            card_layout.addWidget(self.theme_combo)
-            layout.addWidget(card)
-            layout.addStretch(1)
+            cred_layout.addWidget(SubtitleLabel("USDB account"))
+            cred_layout.addWidget(self.user_edit)
+            cred_layout.addWidget(self.pass_edit)
+            cred_layout.addWidget(save_cred_btn)
+            cred_layout.addWidget(register_btn)
+            cred_layout.addWidget(SubtitleLabel("Theme"))
+            cred_layout.addWidget(self.theme_combo)
+            scroll_layout.addWidget(cred_card)
+
+            # Destination defaults card
+            dest_card = CardWidget(self)
+            dest_layout = QVBoxLayout(dest_card)
+            dest_layout.setContentsMargins(22, 20, 22, 22)
+            dest_layout.setSpacing(12)
+
+            self.output_edit = LineEdit()
+            self.output_edit.setPlaceholderText("Output folder")
+            self.output_edit.setText(preferences.output_folder or str(Path.cwd() / "demo_output"))
+
+            output_row = QHBoxLayout()
+            output_row.addWidget(self.output_edit, 1)
+            browse_btn = PushButton(FIF.FOLDER, "Browse")
+            browse_btn.clicked.connect(self._choose_output)
+            output_row.addWidget(browse_btn)
+
+            self.download_lyrics = CheckBox("Download lyrics TXT")
+            self.download_lyrics.setChecked(preferences.download_lyrics)
+            self.download_audio = CheckBox("Download MP3 audio")
+            self.download_audio.setChecked(preferences.download_audio)
+            self.download_video = CheckBox("Download video MP4")
+            self.download_video.setChecked(preferences.download_video)
+            self.respect_wait = CheckBox("Respect USDB wait")
+            self.respect_wait.setChecked(preferences.respect_wait)
+
+            for cb in (self.download_lyrics, self.download_audio, self.download_video, self.respect_wait):
+                cb.stateChanged.connect(self._mark_prefs_dirty)
+
+            save_prefs_btn = PrimaryPushButton(FIF.SAVE, "Save defaults")
+            save_prefs_btn.clicked.connect(self.save_preferences)
+
+            option_row = QHBoxLayout()
+            option_row.addWidget(self.download_lyrics)
+            option_row.addWidget(self.download_audio)
+            option_row.addWidget(self.download_video)
+            option_row.addStretch(1)
+
+            wait_row = QHBoxLayout()
+            wait_row.addWidget(self.respect_wait)
+            wait_row.addStretch(1)
+
+            dest_layout.addWidget(SubtitleLabel("Default import destination"))
+            dest_layout.addLayout(output_row)
+            dest_layout.addLayout(option_row)
+            dest_layout.addLayout(wait_row)
+            dest_layout.addWidget(save_prefs_btn)
+            scroll_layout.addWidget(dest_card)
+            scroll_layout.addStretch(1)
 
         def save_credentials(self) -> None:
             username = self.user_edit.text().strip()
@@ -439,6 +670,27 @@ if missing_dependency_error is None:
 
         def open_usdb_registration(self) -> None:
             QDesktopServices.openUrl(QUrl("https://usdb.animux.de/index.php?link=register"))
+
+        def _choose_output(self) -> None:
+            folder = QFileDialog.getExistingDirectory(self, "Choose output folder", self.output_edit.text())
+            if folder:
+                self.output_edit.setText(folder)
+                self._mark_prefs_dirty()
+
+        def _mark_prefs_dirty(self) -> None:
+            self._prefs_dirty = True
+
+        def save_preferences(self) -> None:
+            save_stored_preferences(
+                theme=theme_key_from_label(self.theme_combo.currentText()),
+                output_folder=self.output_edit.text().strip(),
+                download_lyrics=self.download_lyrics.isChecked(),
+                download_audio=self.download_audio.isChecked(),
+                download_video=self.download_video.isChecked(),
+                respect_wait=self.respect_wait.isChecked(),
+            )
+            self._prefs_dirty = False
+            InfoBar.success("Saved", "Import defaults will be reused on future launches.", parent=self)
 
         def apply_theme(self, label: str) -> None:
             theme_key = theme_key_from_label(label)
@@ -574,16 +826,8 @@ if missing_dependency_error is None:
             layout.addWidget(self.audio_fallback, 4)
             self.video_widget.hide()
 
-            self.previous_label = QLabel("")
-            self.current_label = QLabel("")
-            self.next_label = QLabel("")
-            self.previous_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            self.current_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            self.next_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            self.current_label.setStyleSheet("font-size: 24px; font-weight: 600;")
-            layout.addWidget(self.previous_label)
-            layout.addWidget(self.current_label)
-            layout.addWidget(self.next_label)
+            self.lyric_display = LyricDisplayWidget()
+            layout.addWidget(self.lyric_display)
 
             controls = QHBoxLayout()
             self.back_btn = PushButton("Back")
@@ -604,9 +848,7 @@ if missing_dependency_error is None:
         def load_entry(self, entry) -> None:
             self.stop()
             self.timed_lyrics = ()
-            self.previous_label.clear()
-            self.current_label.clear()
-            self.next_label.clear()
+            self.lyric_display.clear()
             title = entry.display_title
             if entry.display_artist:
                 title = f"{entry.display_artist} - {title}"
@@ -618,14 +860,14 @@ if missing_dependency_error is None:
                     self.timed_lyrics = build_timed_lyrics(song)
                 except (OSError, UnicodeDecodeError, ValueError) as exc:
                     self.status_label.setText(f"Lyrics unavailable: {exc}")
-                    self.current_label.setText("No synchronized lyrics")
+                    self.lyric_display.set_lyrics("", "No synchronized lyrics", "")
                 else:
                     lyric_status, current_text = describe_lyric_sync_status(song, self.timed_lyrics)
                     self.status_label.setText(lyric_status)
-                    self.current_label.setText(current_text)
+                    self.lyric_display.set_lyrics("", current_text, "")
             else:
                 self.status_label.setText("No TXT lyrics found")
-                self.current_label.setText("No synchronized lyrics")
+                self.lyric_display.set_lyrics("", "No synchronized lyrics", "")
 
             media_path = entry.preferred_media_path
             if media_path is None:
@@ -679,9 +921,8 @@ if missing_dependency_error is None:
 
         def _update_lyrics(self, position: int) -> None:
             window = lyrics_at_position(self.timed_lyrics, position)
-            self.previous_label.setText(window.previous.text if window.previous else "")
-            self.current_label.setText(window.current.text if window.current else "")
-            self.next_label.setText(window.next.text if window.next else "")
+            previous, current, next_line = lyric_display_payload(window, position)
+            self.lyric_display.set_lyrics(previous, current, next_line)
 
 
     class UltraStarFluentWindow(FluentWindow):
@@ -702,11 +943,14 @@ if missing_dependency_error is None:
             self.addSubInterface(self.settings, FIF.SETTING, "Settings")
 
             self.home.startRequested.connect(self.start_import)
+            self.home.searchRequested.connect(self.search_usdb)
             self.library.playRequested.connect(self.open_player)
             self.player.backRequested.connect(self.return_to_library)
             self.player.playbackEnded.connect(self.return_to_library)
             self.thread: QThread | None = None
             self.worker: ImportWorker | None = None
+            self.search_thread: QThread | None = None
+            self.search_worker: SearchWorker | None = None
 
         def open_player(self, entry) -> None:
             self.player.load_entry(entry)
@@ -715,6 +959,38 @@ if missing_dependency_error is None:
         def return_to_library(self) -> None:
             self.player.stop()
             self.switchTo(self.library)
+
+        def search_usdb(self, payload: dict) -> None:
+            stored = load_stored_credentials()
+            username = os.getenv("USDB_USER") or stored.username
+            password = os.getenv("USDB_PASS") or stored.password
+            if not username or not password:
+                InfoBar.error(
+                    "Missing credentials",
+                    "Save your USDB username and password in Settings first.",
+                    orient=None,
+                    position=InfoBarPosition.TOP_RIGHT,
+                    parent=self,
+                )
+                return
+            try:
+                SongRequest(payload["artist"], payload["title"], download_lyrics=True, download_audio=False, download_video=False)
+            except Exception as exc:
+                InfoBar.error("Invalid search", str(exc), position=InfoBarPosition.TOP_RIGHT, parent=self)
+                return
+
+            self.logs.append(f"[SEARCH] {payload['artist']} - {payload['title']}")
+            self.search_thread = QThread(self)
+            self.search_worker = SearchWorker(username, password, payload["artist"], payload["title"])
+            self.search_worker.moveToThread(self.search_thread)
+            self.search_thread.started.connect(self.search_worker.run)
+            self.search_worker.candidates.connect(self.on_search_results)
+            self.search_worker.failed.connect(self.on_search_failed)
+            self.search_worker.candidates.connect(self.search_thread.quit)
+            self.search_worker.failed.connect(self.search_thread.quit)
+            self.search_thread.finished.connect(self.search_worker.deleteLater)
+            self.search_thread.finished.connect(self.search_thread.deleteLater)
+            self.search_thread.start()
 
         def start_import(self, payload: dict) -> None:
             stored = load_stored_credentials()
@@ -738,6 +1014,7 @@ if missing_dependency_error is None:
                     target_root=Path(payload["output"]),
                     input_mode=payload["input_mode"],
                     youtube_url=payload["youtube_url"],
+                    selected_song_id=payload["selected_song_id"],
                     download_lyrics=payload["download_lyrics"],
                     download_audio=payload["download_audio"],
                     download_video=payload["download_video"],
@@ -755,7 +1032,6 @@ if missing_dependency_error is None:
                 password,
                 request,
                 respect_wait=payload["respect_wait"],
-                cookie_browser=payload["cookie_browser"],
             )
             self.worker.moveToThread(self.thread)
             self.thread.started.connect(self.worker.run)
@@ -770,6 +1046,16 @@ if missing_dependency_error is None:
             self.thread.finished.connect(self.worker.deleteLater)
             self.thread.finished.connect(self.thread.deleteLater)
             self.thread.start()
+
+        def on_search_results(self, candidates: list) -> None:
+            self.home.set_search_results(candidates)
+            self.logs.append(f"[SEARCH] Found {len(candidates)} result(s)")
+            if not candidates:
+                InfoBar.warning("No results", "No USDB songs matched that search.", position=InfoBarPosition.TOP_RIGHT, parent=self)
+
+        def on_search_failed(self, message: str) -> None:
+            self.logs.append(f"[ERROR] Search failed: {message}")
+            InfoBar.error("Search failed", message, position=InfoBarPosition.TOP_RIGHT, parent=self)
 
         def on_progress(self, value: int, message: str) -> None:
             self.home.set_progress(value, message)

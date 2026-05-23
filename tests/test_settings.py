@@ -49,7 +49,7 @@ class SettingsTests(unittest.TestCase):
         with TemporaryDirectory() as temp_dir:
             path = Path(temp_dir) / "preferences.json"
 
-            save_stored_preferences("dark", path)
+            save_stored_preferences("dark", path=path)
             preferences = load_stored_preferences(path)
 
         self.assertEqual(preferences.theme, "dark")
@@ -58,7 +58,7 @@ class SettingsTests(unittest.TestCase):
         with TemporaryDirectory() as temp_dir:
             path = Path(temp_dir) / "preferences.json"
 
-            save_stored_preferences("blue", path)
+            save_stored_preferences("blue", path=path)
             preferences = load_stored_preferences(path)
 
         self.assertEqual(preferences.theme, "auto")

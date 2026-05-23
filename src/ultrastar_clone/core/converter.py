@@ -29,7 +29,12 @@ from urllib.parse import parse_qs, urlparse
 from ultrastar_clone.models import SongMetadata, SongRequest
 
 
-LOWEST_VIDEO_FORMAT = "worst[ext=mp4][vcodec!=none]/18/worst[vcodec!=none]/worst"
+VIDEO_FORMAT = (
+    "bestvideo[height<=1080][ext=mp4][vcodec!=none]+bestaudio[ext=m4a]/"
+    "best[height<=1080][ext=mp4]/"
+    "bestvideo[height<=720][vcodec!=none]+bestaudio/"
+    "best[height<=720]/18"
+)
 LOWEST_AUDIO_SOURCE_FORMAT = "worst[ext=mp4][vcodec!=none]/18/worstaudio/bestaudio/best"
 STABLE_YOUTUBE_FORMAT = "18/worst[ext=mp4][vcodec!=none]/worst[vcodec!=none]/worst"
 REMOTE_JS_COMPONENT = "ejs:github"
@@ -193,7 +198,7 @@ class YtDlpConverter(MediaConverter):
             return [
                 *base,
                 "-f",
-                STABLE_YOUTUBE_FORMAT if fallback else LOWEST_VIDEO_FORMAT,
+                STABLE_YOUTUBE_FORMAT if fallback else VIDEO_FORMAT,
                 "--merge-output-format",
                 "mp4",
                 youtube_url,

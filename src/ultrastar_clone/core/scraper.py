@@ -65,21 +65,42 @@ class USDBScraper(SongScraper):
         if not self._logged_in and not self.login():
             raise PermissionError("USDB login failed")
 
-        html = self._search(request)
-        candidates = parse_search_candidates(html, self.base_url)
+        if request.selected_song_id:
+            return self.metadata_for_song_id(request.selected_song_id)
+
+        candidates = self.search(request)
         match = choose_exact_candidate(candidates, request)
         if match is None:
-            raise LookupError(f"song not found: {request.artist} - {request.title}")
+            if not candidates:
+                raise LookupError(f"song not found: {request.artist} - {request.title}")
+            match = candidates[0]
 
-        detail_html = self._request(match.url)
+        return self.metadata_for_candidate(match)
+
+    def search(self, request: SongRequest) -> list[SearchCandidate]:
+        if not self._logged_in and not self.login():
+            raise PermissionError("USDB login failed")
+        html = self._search(request)
+        return parse_search_candidates(html, self.base_url)
+
+    def metadata_for_candidate(self, candidate: SearchCandidate) -> SongMetadata:
+        if not self._logged_in and not self.login():
+            raise PermissionError("USDB login failed")
+        detail_html = self._request(candidate.url)
         youtube_url = extract_youtube_url(detail_html)
-        return SongMetadata(song_id=match.song_id, youtube_url=youtube_url)
+        return SongMetadata(song_id=candidate.song_id, youtube_url=youtube_url)
+
+    def metadata_for_song_id(self, song_id: str) -> SongMetadata:
+        if not self._logged_in and not self.login():
+            raise PermissionError("USDB login failed")
+        detail_url = urljoin(self.base_url, f"?link=detail&id={song_id}")
+        return self.metadata_for_candidate(SearchCandidate(song_id, "", "", detail_url))
 
     def _search(self, request: SongRequest) -> str:
         query = {
             "link": "list",
             "interpret": request.artist,
-            "titel": request.title,
+            "title": request.title,
         }
         return self._request("?" + urlencode(query))
 

@@ -56,7 +56,13 @@ class ImportController:
 
         if request.input_mode == "search":
             self._progress(20, "Searching USDB")
-            metadata = self.scraper.find(request)
+            if request.selected_song_id:
+                metadata_loader = getattr(self.scraper, "metadata_for_song_id", None)
+                if not callable(metadata_loader):
+                    raise ValueError("Selected USDB results require song-id metadata lookup")
+                metadata = metadata_loader(request.selected_song_id)
+            else:
+                metadata = self.scraper.find(request)
             self.logger.info("Found song metadata: %s", metadata.song_id)
         else:
             metadata = SongMetadata(song_id="direct-url", youtube_url=request.youtube_url)

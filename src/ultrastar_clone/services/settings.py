@@ -26,6 +26,11 @@ class StoredCredentials:
 @dataclass(frozen=True)
 class StoredPreferences:
     theme: str = "auto"
+    output_folder: str = ""
+    download_lyrics: bool = True
+    download_audio: bool = False
+    download_video: bool = True
+    respect_wait: bool = True
 
 
 def default_log_dir() -> Path:
@@ -76,16 +81,39 @@ def load_stored_preferences(path: Path | None = None) -> StoredPreferences:
     theme = str(data.get("theme", "auto")).lower().strip()
     if theme not in {"auto", "light", "dark"}:
         theme = "auto"
-    return StoredPreferences(theme=theme)
+    return StoredPreferences(
+        theme=theme,
+        output_folder=str(data.get("output_folder", "")),
+        download_lyrics=bool(data.get("download_lyrics", True)),
+        download_audio=bool(data.get("download_audio", False)),
+        download_video=bool(data.get("download_video", True)),
+        respect_wait=bool(data.get("respect_wait", True)),
+    )
 
 
-def save_stored_preferences(theme: str, path: Path | None = None) -> Path:
+def save_stored_preferences(
+    theme: str,
+    output_folder: str = "",
+    download_lyrics: bool = True,
+    download_audio: bool = False,
+    download_video: bool = True,
+    respect_wait: bool = True,
+    path: Path | None = None,
+) -> Path:
     target = path or preferences_path()
     target.parent.mkdir(parents=True, exist_ok=True)
     normalized_theme = theme.lower().strip()
     if normalized_theme not in {"auto", "light", "dark"}:
         normalized_theme = "auto"
-    target.write_text(json.dumps({"theme": normalized_theme}, indent=2), encoding="utf-8")
+    data = {
+        "theme": normalized_theme,
+        "output_folder": output_folder,
+        "download_lyrics": download_lyrics,
+        "download_audio": download_audio,
+        "download_video": download_video,
+        "respect_wait": respect_wait,
+    }
+    target.write_text(json.dumps(data, indent=2), encoding="utf-8")
     return target
 
 

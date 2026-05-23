@@ -25,6 +25,7 @@ class SongRequest:
     download_lyrics: bool = True
     download_audio: bool | None = None
     download_video: bool | None = None
+    selected_song_id: str | None = None
 
     def __post_init__(self) -> None:
         artist = self.artist.strip()
@@ -32,6 +33,7 @@ class SongRequest:
         media_format = self.media_format.lower().strip()
         input_mode = self.input_mode.lower().strip()
         youtube_url = self.youtube_url.strip() if self.youtube_url else None
+        selected_song_id = self.selected_song_id.strip() if self.selected_song_id else None
         download_audio = self.download_audio
         download_video = self.download_video
 
@@ -42,10 +44,8 @@ class SongRequest:
 
         if input_mode not in {"search", "url"}:
             raise ValueError("input_mode must be 'search' or 'url'")
-        if input_mode == "search" and not artist:
-            raise ValueError("artist is required")
-        if input_mode == "search" and not title:
-            raise ValueError("title is required")
+        if input_mode == "search" and not (artist or title):
+            raise ValueError("artist or title is required")
         if input_mode == "url" and not youtube_url:
             raise ValueError("youtube_url is required for direct URL imports")
         if media_format not in {"mp3", "mp4"}:
@@ -56,6 +56,7 @@ class SongRequest:
         object.__setattr__(self, "media_format", media_format)
         object.__setattr__(self, "input_mode", input_mode)
         object.__setattr__(self, "youtube_url", youtube_url)
+        object.__setattr__(self, "selected_song_id", selected_song_id)
         object.__setattr__(self, "download_audio", bool(download_audio))
         object.__setattr__(self, "download_video", bool(download_video))
 
@@ -63,6 +64,10 @@ class SongRequest:
     def folder_name(self) -> str:
         if self.input_mode == "url" and not (self.artist and self.title):
             return safe_filename(f"YouTube - {youtube_id_from_url(self.youtube_url or '')}")
+        if not self.artist:
+            return safe_filename(self.title)
+        if not self.title:
+            return safe_filename(self.artist)
         return safe_filename(f"{self.artist} - {self.title}")
 
 

@@ -21,6 +21,9 @@ class FakeScraper(SongScraper):
     def find(self, request: SongRequest) -> SongMetadata:
         return SongMetadata(song_id="123", youtube_url="https://example.test/video")
 
+    def metadata_for_song_id(self, song_id: str) -> SongMetadata:
+        return SongMetadata(song_id=song_id, youtube_url=f"https://example.test/{song_id}")
+
 
 class FakeDownloader(TextDownloader):
     def download_txt(self, request: SongRequest, metadata: SongMetadata, song_folder: Path) -> Path:
@@ -124,6 +127,27 @@ class ControllerTests(unittest.TestCase):
                         download_video=False,
                     )
                 )
+
+    def test_controller_uses_selected_usdb_song_id(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            tmp_path = Path(temp_dir)
+            settings = AppSettings(song_root=tmp_path, log_dir=tmp_path / "logs")
+            controller = ImportController(settings, FakeScraper(), FakeDownloader(), FakeConverter())
+
+            result = controller.import_song(
+                SongRequest(
+                    "Coldplay",
+                    "Yellow",
+                    target_root=tmp_path,
+                    selected_song_id="4698",
+                    download_lyrics=True,
+                    download_audio=False,
+                    download_video=True,
+                )
+            )
+
+        self.assertEqual(result.request.selected_song_id, "4698")
+        self.assertEqual(result.media_paths[0].suffix, ".mp4")
 
 
 if __name__ == "__main__":

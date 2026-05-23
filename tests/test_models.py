@@ -22,12 +22,16 @@ class ModelTests(unittest.TestCase):
 
         self.assertEqual(request.folder_name, "YouTube - abc123")
 
-    def test_search_request_requires_artist_and_title(self) -> None:
-        with self.assertRaisesRegex(ValueError, "artist"):
-            SongRequest("", "Yellow")
+    def test_search_request_allows_artist_or_title_only(self) -> None:
+        artist_only = SongRequest("Coldplay", "")
+        title_only = SongRequest("", "Yellow")
 
-        with self.assertRaisesRegex(ValueError, "title"):
-            SongRequest("Coldplay", "")
+        self.assertEqual(artist_only.folder_name, "Coldplay")
+        self.assertEqual(title_only.folder_name, "Yellow")
+
+    def test_search_request_requires_artist_or_title(self) -> None:
+        with self.assertRaisesRegex(ValueError, "artist or title"):
+            SongRequest("", "")
 
 
 if __name__ == "__main__":

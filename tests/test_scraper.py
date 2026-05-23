@@ -7,6 +7,7 @@ import unittest
 
 from ultrastar_clone.core.scraper import (
     SearchCandidate,
+    USDBScraper,
     choose_exact_candidate,
     extract_song_id_from_url,
     extract_youtube_url,
@@ -63,6 +64,38 @@ class ScraperParsingTests(unittest.TestCase):
         html = '<iframe src="https://www.youtube.com/embed/abc123"></iframe>'
 
         self.assertEqual(extract_youtube_url(html), 'https://www.youtube.com/embed/abc123')
+
+    def test_search_uses_usdb_title_parameter(self) -> None:
+        scraper = USDBScraper('user', 'pass')
+        captured = []
+
+        def fake_request(path, data=None):
+            captured.append(path)
+            return ''
+
+        scraper._logged_in = True
+        scraper._request = fake_request
+        scraper.search(SongRequest('Coldplay', 'Yellow'))
+
+        self.assertIn('title=Yellow', captured[0])
+        self.assertNotIn('titel=', captured[0])
+
+    def test_find_uses_first_candidate_when_search_is_not_exact(self) -> None:
+        scraper = USDBScraper('user', 'pass')
+        scraper._logged_in = True
+        calls = []
+
+        def fake_request(path, data=None):
+            calls.append(path)
+            if 'link=list' in path:
+                return '<tr class="list_tr2" data-songid="4698"><td>Coldplay</td><td><a href="?link=detail&id=4698">Yellow</td></tr>'
+            return '<iframe src="https://www.youtube.com/embed/abc123"></iframe>'
+
+        scraper._request = fake_request
+        metadata = scraper.find(SongRequest('Coldplay', ''))
+
+        self.assertEqual(metadata.song_id, '4698')
+        self.assertEqual(metadata.youtube_url, 'https://www.youtube.com/embed/abc123')
 
 
 if __name__ == '__main__':
