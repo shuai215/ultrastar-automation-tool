@@ -6,11 +6,14 @@
 from __future__ import annotations
 
 import os
+from math import isfinite
 from pathlib import Path
 
 from ultrastar_clone.core.converter import NoMediaConverter, YtDlpConverter
 from ultrastar_clone.core.downloader import USDBTextDownloader
+from ultrastar_clone.core.playback_timeline import build_timed_lyrics, lyrics_at_position
 from ultrastar_clone.core.scraper import USDBScraper
+from ultrastar_clone.core.song_parser import Song, parse_ultrastar_txt
 from ultrastar_clone.models import SongRequest
 from ultrastar_clone.services.controller import ImportController
 from ultrastar_clone.services.library import scan_song_library
@@ -24,15 +27,42 @@ from ultrastar_clone.services.settings import (
     save_stored_preferences,
 )
 
+
+def format_media_time(milliseconds: int) -> str:
+    total_seconds = max(0, milliseconds) // 1000
+    minutes = total_seconds // 60
+    seconds = total_seconds % 60
+    return f"{minutes:02d}:{seconds:02d}"
+
+
+def describe_lyric_sync_status(song: Song, timed_lyrics: tuple) -> tuple[str, str]:
+    """Return status text and fallback current lyric text for parsed lyrics."""
+
+    if timed_lyrics:
+        return "Ready", ""
+    if song.bpm is None or not isfinite(song.bpm) or song.bpm <= 0:
+        return "Lyrics cannot sync because BPM is missing or invalid", "No synchronized lyrics"
+    return "No synchronized lyrics found in TXT", "No synchronized lyrics"
+
+
+def entry_uses_video_output(entry, media_path: Path) -> bool:
+    video_path = getattr(entry, "video_path", None)
+    return video_path is not None and Path(video_path) == Path(media_path)
+
+
 try:
-    from PyQt6.QtCore import QObject, QThread, QUrl, pyqtSignal
+    from PyQt6.QtCore import QObject, Qt, QThread, QUrl, pyqtSignal
     from PyQt6.QtGui import QDesktopServices
+    from PyQt6.QtMultimedia import QAudioOutput, QMediaPlayer
+    from PyQt6.QtMultimediaWidgets import QVideoWidget
     from PyQt6.QtWidgets import (
         QApplication,
         QFileDialog,
         QFrame,
         QHBoxLayout,
         QHeaderView,
+        QLabel,
+        QSlider,
         QTableWidget,
         QTableWidgetItem,
         QVBoxLayout,
@@ -436,10 +466,13 @@ if missing_dependency_error is None:
 
 
     class LibraryPage(QWidget):
+        playRequested = pyqtSignal(object)
+
         def __init__(self) -> None:
             super().__init__()
             self.setObjectName("libraryPage")
             self.root = Path.cwd() / "demo_output"
+            self.entries = []
             self._build_ui()
             self.refresh()
 
@@ -467,12 +500,12 @@ if missing_dependency_error is None:
             self.summary_label = BodyLabel("0 songs")
             layout.addWidget(self.summary_label)
 
-            self.table = QTableWidget(0, 5)
-            self.table.setHorizontalHeaderLabels(["Song", "TXT", "MP3", "MP4", "Folder"])
+            self.table = QTableWidget(0, 7)
+            self.table.setHorizontalHeaderLabels(["Title", "Artist", "TXT", "MP3", "MP4", "Folder", "Play"])
             self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
             self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
             self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
-            self.table.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeMode.Stretch)
+            self.table.horizontalHeader().setSectionResizeMode(5, QHeaderView.ResizeMode.Stretch)
             layout.addWidget(self.table, 1)
 
         def choose_root(self) -> None:
@@ -488,15 +521,167 @@ if missing_dependency_error is None:
 
         def refresh(self) -> None:
             self.root = Path(self.root_edit.text().strip() or Path.cwd() / "demo_output")
-            entries = scan_song_library(self.root)
-            self.table.setRowCount(len(entries))
-            for row, entry in enumerate(entries):
-                self.table.setItem(row, 0, QTableWidgetItem(entry.name))
-                self.table.setItem(row, 1, QTableWidgetItem("yes" if entry.has_txt else ""))
-                self.table.setItem(row, 2, QTableWidgetItem("yes" if entry.has_mp3 else ""))
-                self.table.setItem(row, 3, QTableWidgetItem("yes" if entry.has_mp4 else ""))
-                self.table.setItem(row, 4, QTableWidgetItem(str(entry.folder)))
-            self.summary_label.setText(f"{len(entries)} songs")
+            self.entries = scan_song_library(self.root)
+            self.table.setRowCount(len(self.entries))
+            for row, entry in enumerate(self.entries):
+                self.table.setItem(row, 0, QTableWidgetItem(entry.display_title))
+                self.table.setItem(row, 1, QTableWidgetItem(entry.display_artist))
+                self.table.setItem(row, 2, QTableWidgetItem("yes" if entry.txt_path else ""))
+                self.table.setItem(row, 3, QTableWidgetItem("yes" if entry.has_mp3 else ""))
+                self.table.setItem(row, 4, QTableWidgetItem("yes" if entry.has_mp4 else ""))
+                self.table.setItem(row, 5, QTableWidgetItem(str(entry.folder)))
+                play_btn = PushButton("Play")
+                play_btn.setEnabled(entry.is_playable)
+                play_btn.clicked.connect(lambda _checked=False, selected=entry: self.playRequested.emit(selected))
+                self.table.setCellWidget(row, 6, play_btn)
+            self.summary_label.setText(f"{len(self.entries)} songs")
+
+
+    class PlayerPage(QWidget):
+        backRequested = pyqtSignal()
+        playbackEnded = pyqtSignal()
+
+        def __init__(self) -> None:
+            super().__init__()
+            self.setObjectName("playerPage")
+            self.media_player = QMediaPlayer(self)
+            self.audio_output = QAudioOutput(self)
+            self.media_player.setAudioOutput(self.audio_output)
+            self.timed_lyrics = ()
+            self._slider_dragging = False
+            self._build_ui()
+            self.media_player.positionChanged.connect(self._on_position_changed)
+            self.media_player.durationChanged.connect(self._on_duration_changed)
+            self.media_player.mediaStatusChanged.connect(self._on_media_status_changed)
+            self.media_player.errorOccurred.connect(self._on_error)
+
+        def _build_ui(self) -> None:
+            layout = QVBoxLayout(self)
+            layout.setContentsMargins(34, 28, 34, 28)
+            layout.setSpacing(14)
+
+            self.title_label = TitleLabel("Player")
+            self.status_label = QLabel("No song loaded")
+            layout.addWidget(self.title_label)
+            layout.addWidget(self.status_label)
+
+            self.video_widget = QVideoWidget()
+            self.media_player.setVideoOutput(self.video_widget)
+            layout.addWidget(self.video_widget, 4)
+
+            self.audio_fallback = QLabel("Audio playback")
+            self.audio_fallback.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            layout.addWidget(self.audio_fallback, 4)
+            self.video_widget.hide()
+
+            self.previous_label = QLabel("")
+            self.current_label = QLabel("")
+            self.next_label = QLabel("")
+            self.previous_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            self.current_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            self.next_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            self.current_label.setStyleSheet("font-size: 24px; font-weight: 600;")
+            layout.addWidget(self.previous_label)
+            layout.addWidget(self.current_label)
+            layout.addWidget(self.next_label)
+
+            controls = QHBoxLayout()
+            self.back_btn = PushButton("Back")
+            self.back_btn.clicked.connect(self.backRequested.emit)
+            self.play_pause_btn = PushButton("Pause")
+            self.play_pause_btn.clicked.connect(self.toggle_playback)
+            self.progress_slider = QSlider(Qt.Orientation.Horizontal)
+            self.progress_slider.setRange(0, 0)
+            self.progress_slider.sliderPressed.connect(self._on_slider_pressed)
+            self.progress_slider.sliderReleased.connect(self._on_slider_released)
+            self.time_label = QLabel("00:00 / 00:00")
+            controls.addWidget(self.back_btn)
+            controls.addWidget(self.play_pause_btn)
+            controls.addWidget(self.progress_slider, 1)
+            controls.addWidget(self.time_label)
+            layout.addLayout(controls)
+
+        def load_entry(self, entry) -> None:
+            self.stop()
+            self.timed_lyrics = ()
+            self.previous_label.clear()
+            self.current_label.clear()
+            self.next_label.clear()
+            title = entry.display_title
+            if entry.display_artist:
+                title = f"{entry.display_artist} - {title}"
+            self.title_label.setText(title)
+
+            if entry.txt_path:
+                try:
+                    song = parse_ultrastar_txt(entry.txt_path)
+                    self.timed_lyrics = build_timed_lyrics(song)
+                except (OSError, UnicodeDecodeError, ValueError) as exc:
+                    self.status_label.setText(f"Lyrics unavailable: {exc}")
+                    self.current_label.setText("No synchronized lyrics")
+                else:
+                    lyric_status, current_text = describe_lyric_sync_status(song, self.timed_lyrics)
+                    self.status_label.setText(lyric_status)
+                    self.current_label.setText(current_text)
+            else:
+                self.status_label.setText("No TXT lyrics found")
+                self.current_label.setText("No synchronized lyrics")
+
+            media_path = entry.preferred_media_path
+            if media_path is None:
+                self.status_label.setText("No playable media found")
+                return
+
+            is_video = entry_uses_video_output(entry, media_path)
+            self.video_widget.setVisible(is_video)
+            self.audio_fallback.setVisible(not is_video)
+            self.media_player.setSource(QUrl.fromLocalFile(str(media_path)))
+            self.media_player.play()
+            self.play_pause_btn.setText("Pause")
+
+        def stop(self) -> None:
+            self.media_player.stop()
+
+        def toggle_playback(self) -> None:
+            if self.media_player.playbackState() == QMediaPlayer.PlaybackState.PlayingState:
+                self.media_player.pause()
+                self.play_pause_btn.setText("Play")
+            else:
+                self.media_player.play()
+                self.play_pause_btn.setText("Pause")
+
+        def _on_position_changed(self, position: int) -> None:
+            if not self._slider_dragging:
+                self.progress_slider.setValue(position)
+            duration = self.media_player.duration()
+            self.time_label.setText(f"{format_media_time(position)} / {format_media_time(duration)}")
+            self._update_lyrics(position)
+
+        def _on_duration_changed(self, duration: int) -> None:
+            self.progress_slider.setRange(0, max(0, duration))
+            position = self.media_player.position()
+            self.time_label.setText(f"{format_media_time(position)} / {format_media_time(duration)}")
+
+        def _on_media_status_changed(self, status) -> None:
+            if status == QMediaPlayer.MediaStatus.EndOfMedia:
+                self.stop()
+                self.playbackEnded.emit()
+
+        def _on_error(self, *_args) -> None:
+            self.status_label.setText(self.media_player.errorString() or "Playback error")
+
+        def _on_slider_pressed(self) -> None:
+            self._slider_dragging = True
+
+        def _on_slider_released(self) -> None:
+            self._slider_dragging = False
+            self.media_player.setPosition(self.progress_slider.value())
+
+        def _update_lyrics(self, position: int) -> None:
+            window = lyrics_at_position(self.timed_lyrics, position)
+            self.previous_label.setText(window.previous.text if window.previous else "")
+            self.current_label.setText(window.current.text if window.current else "")
+            self.next_label.setText(window.next.text if window.next else "")
 
 
     class UltraStarFluentWindow(FluentWindow):
@@ -506,17 +691,30 @@ if missing_dependency_error is None:
             self.resize(1060, 720)
             self.home = HomePage()
             self.library = LibraryPage()
+            self.player = PlayerPage()
             self.settings = SettingsPage()
             self.logs = LogPage()
 
             self.addSubInterface(self.home, FIF.HOME, "Import")
             self.addSubInterface(self.library, FIF.FOLDER, "Library")
+            self.addSubInterface(self.player, FIF.PLAY, "Player")
             self.addSubInterface(self.logs, FIF.MESSAGE, "Logs")
             self.addSubInterface(self.settings, FIF.SETTING, "Settings")
 
             self.home.startRequested.connect(self.start_import)
+            self.library.playRequested.connect(self.open_player)
+            self.player.backRequested.connect(self.return_to_library)
+            self.player.playbackEnded.connect(self.return_to_library)
             self.thread: QThread | None = None
             self.worker: ImportWorker | None = None
+
+        def open_player(self, entry) -> None:
+            self.player.load_entry(entry)
+            self.switchTo(self.player)
+
+        def return_to_library(self) -> None:
+            self.player.stop()
+            self.switchTo(self.library)
 
         def start_import(self, payload: dict) -> None:
             stored = load_stored_credentials()
