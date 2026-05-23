@@ -11,9 +11,7 @@ from pathlib import Path
 from PyQt6.QtGui import QDesktopServices
 from PyQt6.QtWidgets import (
     QFileDialog,
-    QFrame,
     QHBoxLayout,
-    QScrollArea,
     QVBoxLayout,
     QWidget,
 )
@@ -21,7 +19,6 @@ from PyQt6.QtCore import QUrl
 from qfluentwidgets import (
     CardWidget,
     CheckBox,
-    ComboBox,
     FluentIcon as FIF,
     InfoBar,
     InfoBarPosition,
@@ -30,9 +27,7 @@ from qfluentwidgets import (
     PrimaryPushButton,
     PushButton,
     SubtitleLabel,
-    Theme,
     TitleLabel,
-    setTheme,
 )
 
 from ultrastar_clone.services.settings import (
@@ -41,30 +36,6 @@ from ultrastar_clone.services.settings import (
     save_stored_credentials,
     save_stored_preferences,
 )
-
-THEME_LABELS = {
-    "auto": "Follow system",
-    "light": "Light",
-    "dark": "Dark",
-}
-
-
-def theme_from_key(theme_key: str):
-    if theme_key == "light":
-        return Theme.LIGHT
-    if theme_key == "dark":
-        return Theme.DARK
-    return Theme.AUTO
-
-
-def theme_key_from_label(label: str) -> str:
-    normalized = label.strip().lower()
-    if normalized == "light":
-        return "light"
-    if normalized == "dark":
-        return "dark"
-    return "auto"
-
 
 class SettingsPage(QWidget):
     def __init__(self) -> None:
@@ -76,16 +47,6 @@ class SettingsPage(QWidget):
         layout.setSpacing(18)
 
         layout.addWidget(TitleLabel("Settings"))
-
-        scroll_area = QScrollArea(self)
-        scroll_area.setWidgetResizable(True)
-        scroll_area.setFrameShape(QFrame.Shape.NoFrame)
-        scroll_content = QWidget()
-        scroll_area.setWidget(scroll_content)
-        scroll_layout = QVBoxLayout(scroll_content)
-        scroll_layout.setContentsMargins(0, 0, 0, 0)
-        scroll_layout.setSpacing(18)
-        layout.addWidget(scroll_area, 1)
 
         # USDB account card
         cred_card = CardWidget(self)
@@ -101,11 +62,6 @@ class SettingsPage(QWidget):
         self.pass_edit.setPlaceholderText("USDB_PASS")
         self.pass_edit.setText(os.getenv("USDB_PASS", stored.password))
         preferences = load_stored_preferences()
-        self.theme_combo = ComboBox()
-        self.theme_combo.addItems(list(THEME_LABELS.values()))
-        self.theme_combo.setCurrentText(THEME_LABELS.get(preferences.theme, THEME_LABELS["auto"]))
-        self.theme_combo.currentTextChanged.connect(self.apply_theme)
-
         save_cred_btn = PrimaryPushButton(FIF.SAVE, "Save credentials")
         save_cred_btn.clicked.connect(self.save_credentials)
         register_btn = PushButton(FIF.HOME, "Register USDB account")
@@ -116,9 +72,7 @@ class SettingsPage(QWidget):
         cred_layout.addWidget(self.pass_edit)
         cred_layout.addWidget(save_cred_btn)
         cred_layout.addWidget(register_btn)
-        cred_layout.addWidget(SubtitleLabel("Theme"))
-        cred_layout.addWidget(self.theme_combo)
-        scroll_layout.addWidget(cred_card)
+        layout.addWidget(cred_card)
 
         # Destination defaults card
         dest_card = CardWidget(self)
@@ -166,8 +120,8 @@ class SettingsPage(QWidget):
         dest_layout.addLayout(option_row)
         dest_layout.addLayout(wait_row)
         dest_layout.addWidget(save_prefs_btn)
-        scroll_layout.addWidget(dest_card)
-        scroll_layout.addStretch(1)
+        layout.addWidget(dest_card)
+        layout.addStretch(1)
 
     def save_credentials(self) -> None:
         username = self.user_edit.text().strip()
@@ -191,7 +145,7 @@ class SettingsPage(QWidget):
 
     def save_preferences(self) -> None:
         save_stored_preferences(
-            theme=theme_key_from_label(self.theme_combo.currentText()),
+            theme="auto",
             output_folder=self.output_edit.text().strip(),
             download_lyrics=self.download_lyrics.isChecked(),
             download_audio=self.download_audio.isChecked(),
@@ -201,7 +155,3 @@ class SettingsPage(QWidget):
         self._prefs_dirty = False
         InfoBar.success("Saved", "Import defaults will be reused on future launches.", parent=self)
 
-    def apply_theme(self, label: str) -> None:
-        theme_key = theme_key_from_label(label)
-        setTheme(theme_from_key(theme_key))
-        save_stored_preferences(theme_key)

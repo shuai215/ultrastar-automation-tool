@@ -50,6 +50,7 @@ class HomePage(QWidget):
         scroll_area = QScrollArea(self)
         scroll_area.setWidgetResizable(True)
         scroll_area.setFrameShape(QFrame.Shape.NoFrame)
+        scroll_area.viewport().setAutoFillBackground(False)
         content = QWidget()
         layout.addWidget(scroll_area)
         scroll_area.setWidget(content)

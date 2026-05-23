@@ -16,6 +16,7 @@ from PyQt6.QtCore import (
     QVariantAnimation,
     pyqtProperty,
 )
+from PyQt6.QtGui import QPalette
 from PyQt6.QtWidgets import QLabel, QProgressBar, QTableWidget, QVBoxLayout, QWidget
 from qfluentwidgets import ProgressBar as FluentProgressBar
 
@@ -49,9 +50,11 @@ class LyricDisplayWidget(QWidget):
             label.setAlignment(Qt.AlignmentFlag.AlignCenter)
             label.setWordWrap(True)
 
-        self.previous_label.setStyleSheet("color: #8a8a8a; font-size: 14px;")
+        self.previous_label.setStyleSheet("font-size: 14px;")
+        self.previous_label.setForegroundRole(QPalette.ColorRole.Mid)
         self.current_label.setStyleSheet("font-size: 24px; font-weight: 600;")
-        self.next_label.setStyleSheet("color: #8a8a8a; font-size: 14px;")
+        self.next_label.setStyleSheet("font-size: 14px;")
+        self.next_label.setForegroundRole(QPalette.ColorRole.Mid)
 
         group_layout.addWidget(self.previous_label)
         group_layout.addWidget(self.current_label)
