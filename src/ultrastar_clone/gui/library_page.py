@@ -8,7 +8,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from PyQt6.QtCore import pyqtSignal, Qt
-from PyQt6.QtGui import QIcon, QPainter, QPixmap
+from PyQt6.QtGui import QColor, QIcon, QPainter, QPixmap
 from PyQt6.QtWidgets import (
     QFileDialog,
     QHBoxLayout,
@@ -30,10 +30,20 @@ from qfluentwidgets import (
 from ultrastar_clone.services.library import scan_song_library
 
 
+ACCENT_BLUE = QColor("#0078D4")
+
+
 def _format_icon(fif: FIF, enabled: bool) -> QIcon:
-    if enabled:
-        return fif.icon()
     pixmap = fif.icon().pixmap(20, 20)
+    if enabled:
+        tinted = QPixmap(pixmap.size())
+        tinted.fill(Qt.GlobalColor.transparent)
+        painter = QPainter(tinted)
+        painter.drawPixmap(0, 0, pixmap)
+        painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_SourceIn)
+        painter.fillRect(tinted.rect(), ACCENT_BLUE)
+        painter.end()
+        return QIcon(tinted)
     dimmed = QPixmap(pixmap.size())
     dimmed.fill(Qt.GlobalColor.transparent)
     painter = QPainter(dimmed)
