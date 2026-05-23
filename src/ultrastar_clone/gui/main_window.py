@@ -133,8 +133,6 @@ class UltraStarFluentWindow(FluentWindow):
         self.thread.started.connect(self.worker.run)
         self.worker.log.connect(self.logs.append)
         self.worker.progress.connect(self.on_progress)
-        self.worker.txtProgress.connect(self.on_txt_progress)
-        self.worker.mediaProgress.connect(self.on_media_progress)
         self.worker.done.connect(self.on_done)
         self.worker.failed.connect(self.on_failed)
         self.worker.done.connect(self.thread.quit)
@@ -156,14 +154,6 @@ class UltraStarFluentWindow(FluentWindow):
     def on_progress(self, value: int, message: str) -> None:
         self.home.set_progress(value, message)
         self.logs.append(f"[PROGRESS] {value}% - {message}")
-
-    def on_txt_progress(self, value: int, message: str) -> None:
-        self.home.set_txt_progress(value, message)
-        self.logs.append(f"[TXT] {value}% - {message}")
-
-    def on_media_progress(self, value: int, message: str) -> None:
-        self.home.set_media_progress(value, message)
-        self.logs.append(f"[MEDIA] {value}% - {message}")
 
     def on_done(self, song_folder: str, txt_path: str, media_path: str) -> None:
         self.home.set_done()

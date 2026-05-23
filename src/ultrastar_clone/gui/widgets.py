@@ -5,8 +5,19 @@
 
 from __future__ import annotations
 
-from PyQt6.QtCore import QAbstractAnimation, QEasingCurve, QPoint, QPropertyAnimation, QSize, Qt
-from PyQt6.QtWidgets import QLabel, QTableWidget, QVBoxLayout, QWidget
+from PyQt6.QtCore import (
+    QAbstractAnimation,
+    QEasingCurve,
+    QPoint,
+    QPropertyAnimation,
+    QSequentialAnimationGroup,
+    QSize,
+    Qt,
+    QVariantAnimation,
+    pyqtProperty,
+)
+from PyQt6.QtWidgets import QLabel, QProgressBar, QTableWidget, QVBoxLayout, QWidget
+from qfluentwidgets import ProgressBar as FluentProgressBar
 
 from ultrastar_clone.gui.utils import lyric_transition_required
 
@@ -110,3 +121,77 @@ class PreferredRowsTable(QTableWidget):
         header_height = self.horizontalHeader().height()
         preferred_height = header_height + row_height * self.preferred_rows + 8
         return QSize(hint.width(), max(hint.height(), preferred_height))
+
+
+class AnimatedProgressBar(QWidget):
+    """A progress bar that smoothly animates value changes."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._value = 0
+        self._target = 0
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+
+        self.bar = FluentProgressBar()
+        self.bar.setValue(0)
+        layout.addWidget(self.bar)
+
+        self._anim = QVariantAnimation(self)
+        self._anim.setDuration(400)
+        self._anim.setEasingCurve(QEasingCurve.Type.OutCubic)
+        self._anim.valueChanged.connect(self._on_anim_tick)
+
+    def set_value_animated(self, target: int) -> None:
+        target = max(0, min(100, target))
+        self._target = target
+        self._anim.stop()
+        self._anim.setStartValue(self._value)
+        self._anim.setEndValue(target)
+        self._anim.start()
+
+    def set_value_instant(self, value: int) -> None:
+        self._anim.stop()
+        self._value = max(0, min(100, value))
+        self._target = self._value
+        self.bar.setValue(self._value)
+
+    def _on_anim_tick(self, val) -> None:
+        self._value = int(val)
+        self.bar.setValue(self._value)
+
+
+class AnimatedHeightWidget(QWidget):
+    """A container that animates its height for expand/collapse transitions."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._target_height = 0
+        self._anim = QPropertyAnimation(self, b"animHeight")
+        self._anim.setDuration(350)
+        self._anim.setEasingCurve(QEasingCurve.Type.OutCubic)
+
+    @pyqtProperty(int)
+    def animHeight(self):
+        return self.height()
+
+    @animHeight.setter
+    def animHeight(self, value: int):
+        self.setMaximumHeight(value)
+        self.setMinimumHeight(0)
+
+    def expand(self) -> None:
+        self._anim.stop()
+        self.show()
+        hint = self.sizeHint().height()
+        self._anim.setStartValue(0)
+        self._anim.setEndValue(hint)
+        self._anim.start()
+
+    def collapse(self) -> None:
+        self._anim.stop()
+        self._anim.setStartValue(self.height())
+        self._anim.setEndValue(0)
+        self._anim.finished.connect(self.hide)
+        self._anim.start()

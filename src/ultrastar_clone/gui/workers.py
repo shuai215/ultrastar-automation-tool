@@ -40,8 +40,6 @@ class SignalLogger:
 class ImportWorker(QObject):
     log = pyqtSignal(str)
     progress = pyqtSignal(int, str)
-    txtProgress = pyqtSignal(int, str)
-    mediaProgress = pyqtSignal(int, str)
     done = pyqtSignal(str, str, str)
     failed = pyqtSignal(str)
 
@@ -80,7 +78,6 @@ class ImportWorker(QObject):
 
                 def progress(_, value: int, message: str) -> None:
                     self.progress.emit(value, message)
-                    self._emit_txt_progress(value, message)
 
             scraper = USDBScraper(self.username, self.password) if self.username and self.password else None
             opener = scraper.opener if scraper is not None else None
@@ -102,18 +99,7 @@ class ImportWorker(QObject):
 
     def _media_progress(self, percent: int, message: str) -> None:
         scaled = 60 + int(percent * 0.25)
-        self.progress.emit(min(scaled, 85), f"Media download {percent}%")
-        self.mediaProgress.emit(percent, message)
-
-    def _emit_txt_progress(self, value: int, message: str) -> None:
-        if not self.request.download_lyrics:
-            return
-        if value < 45:
-            self.txtProgress.emit(0, "TXT download 0%")
-        elif value == 45:
-            self.txtProgress.emit(20, message)
-        elif value >= 60:
-            self.txtProgress.emit(100, "TXT download complete")
+        self.progress.emit(min(scaled, 85), f"Downloading media {percent}%")
 
 
 class SearchWorker(QObject):

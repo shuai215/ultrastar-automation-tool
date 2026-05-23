@@ -7,10 +7,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PyQt6.QtCore import pyqtSignal
+from PyQt6.QtCore import pyqtSignal, QEasingCurve, QPropertyAnimation
 from PyQt6.QtWidgets import (
     QFrame,
-    QHBoxLayout,
     QHeaderView,
     QScrollArea,
     QTableWidget,
@@ -25,13 +24,12 @@ from qfluentwidgets import (
     FluentIcon as FIF,
     LineEdit,
     PrimaryPushButton,
-    ProgressBar,
     PushButton,
     SubtitleLabel,
     TitleLabel,
 )
 
-from ultrastar_clone.gui.widgets import PreferredRowsTable
+from ultrastar_clone.gui.widgets import AnimatedProgressBar, PreferredRowsTable
 from ultrastar_clone.services.settings import load_stored_preferences
 
 
@@ -58,17 +56,15 @@ class HomePage(QWidget):
 
         content_layout = QVBoxLayout(content)
         content_layout.setContentsMargins(34, 28, 34, 28)
-        content_layout.setSpacing(18)
+        content_layout.setSpacing(24)
 
-        title = TitleLabel("UltraStar Import")
-        subtitle = BodyLabel("Search USDB, download the UltraStar txt file, and optionally convert media.")
-        content_layout.addWidget(title)
-        content_layout.addWidget(subtitle)
+        content_layout.addWidget(TitleLabel("UltraStar Import"))
+        content_layout.addWidget(BodyLabel("Search USDB, download the UltraStar txt file, and optionally convert media."))
 
         card = CardWidget(self)
         card_layout = QVBoxLayout(card)
         card_layout.setContentsMargins(22, 20, 22, 22)
-        card_layout.setSpacing(14)
+        card_layout.setSpacing(12)
 
         self.artist_edit = LineEdit()
         self.artist_edit.setPlaceholderText("Artist")
@@ -84,18 +80,15 @@ class HomePage(QWidget):
         search_btn = PushButton(FIF.HOME, "Search USDB")
         search_btn.clicked.connect(self._emit_search)
 
-        self.start_btn = PrimaryPushButton(FIF.PLAY, "Start import")
-        self.start_btn.clicked.connect(self._emit_start)
-
-        self.progress = ProgressBar()
-        self.progress.setValue(0)
-        self.progress_label = BodyLabel("Ready")
-        self.txt_progress = ProgressBar()
-        self.txt_progress.setValue(0)
-        self.txt_progress_label = BodyLabel("TXT download 0%")
-        self.media_progress = ProgressBar()
-        self.media_progress.setValue(0)
-        self.media_progress_label = BodyLabel("Media download 0%")
+        self.result_table = PreferredRowsTable(6, 0, 3)
+        self.result_table.setHorizontalHeaderLabels(["ID", "Artist", "Title"])
+        self.result_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self.result_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        self.result_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        self.result_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
+        self.result_table.setVisible(False)
+        self.artist_edit.textChanged.connect(lambda _text: self.set_search_results([]))
+        self.title_edit.textChanged.connect(lambda _text: self.set_search_results([]))
 
         card_layout.addWidget(SubtitleLabel("Song"))
         card_layout.addWidget(self.mode_combo)
@@ -103,26 +96,26 @@ class HomePage(QWidget):
         card_layout.addWidget(self.title_edit)
         card_layout.addWidget(self.url_edit)
         card_layout.addWidget(search_btn)
-        self.result_table = PreferredRowsTable(6, 0, 3)
-        self.result_table.setHorizontalHeaderLabels(["ID", "Artist", "Title"])
-        self.result_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
-        self.result_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
-        self.result_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
-        self.result_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
-        row_height = self.result_table.verticalHeader().defaultSectionSize()
-        header_height = self.result_table.horizontalHeader().height()
-        self.result_table.setFixedHeight(header_height + row_height * 6 + 8)
         card_layout.addWidget(self.result_table)
-        self.artist_edit.textChanged.connect(lambda _text: self.set_search_results([]))
-        self.title_edit.textChanged.connect(lambda _text: self.set_search_results([]))
-        card_layout.addWidget(self.start_btn)
-        card_layout.addWidget(self.progress_label)
-        card_layout.addWidget(self.progress)
-        card_layout.addWidget(self.txt_progress_label)
-        card_layout.addWidget(self.txt_progress)
-        card_layout.addWidget(self.media_progress_label)
-        card_layout.addWidget(self.media_progress)
+
         content_layout.addWidget(card)
+
+        self.start_btn = PrimaryPushButton(FIF.PLAY, "Start import")
+        self.start_btn.clicked.connect(self._emit_start)
+        content_layout.addWidget(self.start_btn, alignment=1)
+
+        self._progress_area = QWidget()
+        self._progress_area.setVisible(False)
+        progress_layout = QVBoxLayout(self._progress_area)
+        progress_layout.setContentsMargins(34, 0, 34, 12)
+        progress_layout.setSpacing(8)
+
+        self.progress_label = BodyLabel("")
+        self.progress = AnimatedProgressBar()
+        progress_layout.addWidget(self.progress_label)
+        progress_layout.addWidget(self.progress)
+
+        content_layout.addWidget(self._progress_area)
         content_layout.addStretch(1)
 
     def _emit_search(self) -> None:
@@ -139,6 +132,7 @@ class HomePage(QWidget):
             self.result_table.setItem(row, 0, QTableWidgetItem(candidate["song_id"]))
             self.result_table.setItem(row, 1, QTableWidgetItem(candidate["artist"]))
             self.result_table.setItem(row, 2, QTableWidgetItem(candidate["title"]))
+        self.result_table.setVisible(bool(candidates))
         if candidates:
             self.result_table.selectRow(0)
 
@@ -179,28 +173,49 @@ class HomePage(QWidget):
 
     def set_running(self, running: bool) -> None:
         self.start_btn.setEnabled(not running)
-        self.progress.setValue(35 if running else 0)
-        self.progress_label.setText("Running..." if running else "Ready")
-        self.txt_progress.setValue(0)
-        self.txt_progress_label.setText("TXT download 0%")
-        self.media_progress.setValue(0)
-        self.media_progress_label.setText("Media download 0%")
+        if running:
+            self.progress.set_value_instant(0)
+            self.progress_label.setText("Starting...")
+            self._progress_area.setVisible(True)
+            self._animate_progress_in()
+        else:
+            self._animate_progress_out()
 
     def set_done(self) -> None:
-        self.progress.setValue(100)
+        self.progress.set_value_instant(100)
         self.progress_label.setText("Import complete")
+
+        self._success_flash = QPropertyAnimation(self.progress.bar, b"value")
+        self._success_flash.setDuration(600)
+        self._success_flash.setStartValue(95)
+        self._success_flash.setEndValue(100)
+        self._success_flash.setEasingCurve(QEasingCurve.Type.OutBack)
+        self._success_flash.start()
+        self._success_flash.finished.connect(lambda: self.progress.set_value_animated(100))
+
         self.start_btn.setEnabled(True)
 
     def set_progress(self, value: int, message: str) -> None:
-        self.progress.setValue(max(0, min(100, value)))
+        self.progress.set_value_animated(max(0, min(100, value)))
         self.progress_label.setText(message)
 
-    def set_txt_progress(self, value: int, message: str) -> None:
-        percent = max(0, min(100, value))
-        self.txt_progress.setValue(percent)
-        self.txt_progress_label.setText(f"TXT download {percent}%")
+    def _animate_progress_in(self) -> None:
+        self._progress_area.setMaximumHeight(0)
+        self._progress_area.show()
+        hint = self._progress_area.sizeHint().height()
+        anim = QPropertyAnimation(self._progress_area, b"maximumHeight")
+        anim.setDuration(350)
+        anim.setStartValue(0)
+        anim.setEndValue(hint + 100)
+        anim.setEasingCurve(QEasingCurve.Type.OutCubic)
+        anim.start()
+        self._expand_anim = anim
 
-    def set_media_progress(self, value: int, message: str) -> None:
-        percent = max(0, min(100, value))
-        self.media_progress.setValue(percent)
-        self.media_progress_label.setText(f"Media download {percent}%")
+    def _animate_progress_out(self) -> None:
+        anim = QPropertyAnimation(self._progress_area, b"maximumHeight")
+        anim.setDuration(300)
+        anim.setStartValue(self._progress_area.height())
+        anim.setEndValue(0)
+        anim.setEasingCurve(QEasingCurve.Type.InCubic)
+        anim.finished.connect(self._progress_area.hide)
+        anim.start()
