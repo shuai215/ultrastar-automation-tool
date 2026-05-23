@@ -7,7 +7,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PyQt6.QtCore import pyqtSignal
+from PyQt6.QtCore import pyqtSignal, Qt
+from PyQt6.QtGui import QIcon, QPainter, QPixmap
 from PyQt6.QtWidgets import (
     QFileDialog,
     QHBoxLayout,
@@ -23,9 +24,23 @@ from qfluentwidgets import (
     LineEdit,
     PushButton,
     TitleLabel,
+    TransparentToolButton,
 )
 
 from ultrastar_clone.services.library import scan_song_library
+
+
+def _format_icon(fif: FIF, enabled: bool) -> QIcon:
+    if enabled:
+        return fif.icon()
+    pixmap = fif.icon().pixmap(20, 20)
+    dimmed = QPixmap(pixmap.size())
+    dimmed.fill(Qt.GlobalColor.transparent)
+    painter = QPainter(dimmed)
+    painter.setOpacity(0.25)
+    painter.drawPixmap(0, 0, pixmap)
+    painter.end()
+    return QIcon(dimmed)
 
 
 class LibraryPage(QWidget):
@@ -64,7 +79,7 @@ class LibraryPage(QWidget):
         layout.addWidget(self.summary_label)
 
         self.table = QTableWidget(0, 7)
-        self.table.setHorizontalHeaderLabels(["Title", "Artist", "TXT", "MP3", "MP4", "Folder", "Play"])
+        self.table.setHorizontalHeaderLabels(["Title", "Artist", "TXT", "MP3", "MP4", "Folder", ""])
         self.table.setShowGrid(False)
         self.table.setAlternatingRowColors(True)
         self.table.verticalHeader().setVisible(False)
@@ -72,6 +87,14 @@ class LibraryPage(QWidget):
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
         self.table.horizontalHeader().setSectionResizeMode(5, QHeaderView.ResizeMode.Stretch)
+        self.table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.Fixed)
+        self.table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.Fixed)
+        self.table.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeMode.Fixed)
+        self.table.horizontalHeader().setSectionResizeMode(6, QHeaderView.ResizeMode.Fixed)
+        self.table.setColumnWidth(2, 44)
+        self.table.setColumnWidth(3, 44)
+        self.table.setColumnWidth(4, 44)
+        self.table.setColumnWidth(6, 48)
         self.table.cellDoubleClicked.connect(self._on_double_click)
         layout.addWidget(self.table, 1)
 
@@ -97,12 +120,27 @@ class LibraryPage(QWidget):
         for row, entry in enumerate(self.entries):
             self.table.setItem(row, 0, QTableWidgetItem(entry.display_title))
             self.table.setItem(row, 1, QTableWidgetItem(entry.display_artist))
-            self.table.setItem(row, 2, QTableWidgetItem("yes" if entry.txt_path else ""))
-            self.table.setItem(row, 3, QTableWidgetItem("yes" if entry.has_mp3 else ""))
-            self.table.setItem(row, 4, QTableWidgetItem("yes" if entry.has_mp4 else ""))
+
+            txt_item = QTableWidgetItem()
+            txt_item.setIcon(_format_icon(FIF.DOCUMENT, entry.txt_path is not None))
+            txt_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            self.table.setItem(row, 2, txt_item)
+
+            mp3_item = QTableWidgetItem()
+            mp3_item.setIcon(_format_icon(FIF.MUSIC, entry.has_mp3))
+            mp3_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            self.table.setItem(row, 3, mp3_item)
+
+            mp4_item = QTableWidgetItem()
+            mp4_item.setIcon(_format_icon(FIF.VIDEO, entry.has_mp4))
+            mp4_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            self.table.setItem(row, 4, mp4_item)
+
             self.table.setItem(row, 5, QTableWidgetItem(str(entry.folder)))
-            play_btn = PushButton("Play")
+
+            play_btn = TransparentToolButton(FIF.PLAY)
             play_btn.setEnabled(entry.is_playable)
             play_btn.clicked.connect(lambda _checked=False, selected=entry: self.playRequested.emit(selected))
             self.table.setCellWidget(row, 6, play_btn)
+
         self.summary_label.setText(f"{len(self.entries)} songs")
