@@ -99,6 +99,9 @@ class HomePage(QWidget):
 
         self.result_table = PreferredRowsTable(6, 0, 3)
         self.result_table.setHorizontalHeaderLabels(["ID", "Artist", "Title"])
+        self.result_table.setShowGrid(False)
+        self.result_table.setAlternatingRowColors(True)
+        self.result_table.verticalHeader().setVisible(False)
         self.result_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.result_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.result_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
