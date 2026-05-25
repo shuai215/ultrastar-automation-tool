@@ -1,7 +1,4 @@
-﻿"""USDB login, search, and detail-page parsing.
-
-USDB 登录、搜索以及详情页解析。
-"""
+"""USDB login, search, and detail-page parsing."""
 
 from __future__ import annotations
 

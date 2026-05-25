@@ -1,7 +1,4 @@
-﻿"""Default application paths and settings.
-
-默认应用路径与设置。
-"""
+"""Default application paths and settings."""
 
 from __future__ import annotations
 
@@ -158,5 +155,4 @@ def default_song_root() -> Path:
 
 def load_default_settings() -> AppSettings:
     return AppSettings(song_root=default_song_root(), log_dir=default_log_dir())
-
 

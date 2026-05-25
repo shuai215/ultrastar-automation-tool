@@ -1,7 +1,4 @@
-﻿"""Small GUI launcher module.
-
-轻量 GUI 启动模块。
-"""
+"""Small GUI launcher module."""
 
 from ultrastar_clone.gui.app import main
 

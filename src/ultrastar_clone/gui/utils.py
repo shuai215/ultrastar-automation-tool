@@ -1,7 +1,4 @@
-"""GUI helper functions with no Qt dependency.
-
-无 Qt 依赖的 GUI 辅助函数。
-"""
+"""GUI helper functions with no Qt dependency."""
 
 from __future__ import annotations
 

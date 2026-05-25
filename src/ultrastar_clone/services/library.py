@@ -1,7 +1,4 @@
-"""Song library scanning helpers.
-
-曲库扫描工具。
-"""
+"""Song library scanning helpers."""
 
 from __future__ import annotations
 
@@ -13,10 +10,7 @@ from ultrastar_clone.core.song_parser import Song, parse_ultrastar_txt
 
 @dataclass(frozen=True)
 class SongLibraryEntry:
-    """Files found for one downloaded song folder.
-
-    单个已下载歌曲文件夹中的文件信息。
-    """
+    """Files found for one downloaded song folder."""
 
     name: str
     folder: Path
@@ -60,10 +54,7 @@ class SongLibraryEntry:
 
 
 def scan_song_library(root: Path) -> list[SongLibraryEntry]:
-    """Scan one song root and summarize downloaded song folders.
-
-    扫描歌曲根目录，并汇总每个已下载歌曲文件夹中的文件格式。
-    """
+    """Scan one song root and summarize downloaded song folders."""
 
     if not root.exists() or not root.is_dir():
         return []

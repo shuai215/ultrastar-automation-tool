@@ -1,7 +1,4 @@
-"""Application controller that orchestrates the import pipeline.
-
-应用层控制器：按顺序协调搜索、下载、媒体转换和 txt 编辑流程。
-"""
+"""Application controller that orchestrates the import pipeline."""
 
 from __future__ import annotations
 
@@ -18,10 +15,7 @@ from ultrastar_clone.services.settings import AppSettings
 
 
 class ImportController:
-    """Coordinate core modules without depending on the GUI.
-
-    协调核心模块，但不依赖任何具体 GUI 实现。
-    """
+    """Coordinate core modules without depending on the GUI."""
     def __init__(
         self,
         settings: AppSettings,
@@ -39,10 +33,7 @@ class ImportController:
         self.logger = logger or logging.getLogger(__name__)
 
     def import_song(self, request: SongRequest) -> ImportResult:
-        """Run the complete import pipeline for one song.
-
-        执行单首歌曲的完整导入流程。
-        """
+        """Run the complete import pipeline for one song."""
         self.logger.info("Starting import: %s - %s", request.artist, request.title)
         self._validate_request(request)
         self._progress(5, "Preparing import")
@@ -101,10 +92,7 @@ class ImportController:
         )
 
     def _validate_request(self, request: SongRequest) -> None:
-        """Validate input mode and selected download tasks.
-
-        校验输入模式和用户选择的下载任务。
-        """
+        """Validate input mode and selected download tasks."""
 
         if not request.download_lyrics and not request.download_audio and not request.download_video:
             raise ValueError("Select lyrics, MP3 audio, video, or a combination before importing")
@@ -114,10 +102,7 @@ class ImportController:
             raise ValueError("Search imports require a USDB scraper")
 
     def _progress(self, value: int, message: str) -> None:
-        """Forward progress events when the logger supports them.
-
-        如果 logger 支持 progress 方法，就转发进度事件。
-        """
+        """Forward progress events when the logger supports them."""
         progress = getattr(self.logger, "progress", None)
         if callable(progress):
             progress(value, message)

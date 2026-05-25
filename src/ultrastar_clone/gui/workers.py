@@ -1,7 +1,4 @@
-"""Background workers for search and import operations.
-
-搜索和导入的后台工作线程。
-"""
+"""Background workers for search and import operations."""
 
 from __future__ import annotations
 
@@ -14,6 +11,7 @@ from ultrastar_clone.core.downloader import USDBTextDownloader
 from ultrastar_clone.core.scraper import USDBScraper
 from ultrastar_clone.models import SongRequest
 from ultrastar_clone.services.controller import ImportController
+from ultrastar_clone.services.errors import format_user_error
 from ultrastar_clone.services.logger import build_logger
 from ultrastar_clone.services.settings import AppSettings, default_log_dir
 
@@ -95,7 +93,7 @@ class ImportWorker(QObject):
             media_paths = "; ".join(str(path) for path in result.media_paths)
             self.done.emit(str(result.song_folder), txt_path, media_paths)
         except Exception as exc:
-            self.failed.emit(str(exc))
+            self.failed.emit(format_user_error(exc))
 
     def _media_progress(self, percent: int, message: str) -> None:
         scaled = 60 + int(percent * 0.25)
@@ -127,4 +125,4 @@ class SearchWorker(QObject):
             ]
             self.candidates.emit(results)
         except Exception as exc:
-            self.failed.emit(str(exc))
+            self.failed.emit(format_user_error(exc))

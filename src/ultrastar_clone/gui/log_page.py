@@ -1,7 +1,4 @@
-"""Log page — displays import activity log.
-
-日志页面 — 显示导入活动日志。
-"""
+"""Log page for import activity."""
 
 from __future__ import annotations
 

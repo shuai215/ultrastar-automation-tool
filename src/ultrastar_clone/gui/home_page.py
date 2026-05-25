@@ -1,7 +1,4 @@
-"""Import page — search USDB or enter a YouTube URL and import songs.
-
-导入页面 — 搜索 USDB 或输入 YouTube 链接来导入歌曲。
-"""
+"""Import page for USDB search, direct YouTube URLs, and song imports."""
 
 from __future__ import annotations
 

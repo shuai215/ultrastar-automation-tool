@@ -1,7 +1,4 @@
-﻿"""Application logging setup.
-
-应用日志配置。
-"""
+"""Application logging setup."""
 
 from __future__ import annotations
 
