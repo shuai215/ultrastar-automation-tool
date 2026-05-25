@@ -1,7 +1,5 @@
 """Media download and conversion helpers.
 
-媒体下载与转换工具。
-
 Uses ``yt-dlp`` Python API (not subprocess) so the frozen EXE works
 without a standalone yt-dlp binary on PATH.  ffmpeg is still required
 and is bundled inside the PyInstaller distribution.
@@ -35,7 +33,7 @@ REMOTE_JS_COMPONENT = "ejs:github"
 
 
 def _find_ffmpeg() -> str | None:
-    """Locate ffmpeg — checks the frozen bundle first, then PATH."""
+    """Locate ffmpeg, checking the frozen bundle first and then PATH."""
     if getattr(sys, "frozen", False):
         bundled = Path(sys._MEIPASS) / "ffmpeg.exe"
         if bundled.is_file():
@@ -176,7 +174,7 @@ class YtDlpConverter(MediaConverter):
 
     def _ensure_tools(self) -> None:
         if not self.ffmpeg_path:
-            raise FileNotFoundError("ffmpeg was not found — ensure ffmpeg is on PATH or bundled")
+            raise FileNotFoundError("ffmpeg was not found; ensure ffmpeg is on PATH or bundled")
 
 
 def _is_retryable_youtube_error(error: DownloadError) -> bool:

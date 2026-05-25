@@ -96,7 +96,7 @@ def lyric_target_index(
 ) -> int:
     """Return the index of the last lyric line whose start time has been reached.
 
-    This is a discrete jump — the index only changes when position_ms
+    This is a discrete jump: the index only changes when position_ms
     crosses the next line's start time. Between starts the strip stays still.
     """
     if not lines:

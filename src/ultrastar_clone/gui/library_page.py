@@ -1,7 +1,4 @@
-"""Library page — browse and play local song folders.
-
-曲库页面 — 浏览和播放本地歌曲文件夹。
-"""
+"""Library page for browsing and playing local song folders."""
 
 from __future__ import annotations
 

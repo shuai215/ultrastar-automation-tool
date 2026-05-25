@@ -1,7 +1,4 @@
-"""GUI entry point and backward-compatible re-exports.
-
-GUI 入口和向后兼容的重新导出。
-"""
+"""GUI entry point and backward-compatible re-exports."""
 
 from __future__ import annotations
 

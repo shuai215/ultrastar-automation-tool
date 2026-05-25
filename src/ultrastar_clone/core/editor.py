@@ -1,7 +1,4 @@
-﻿"""UltraStar txt tag editing helpers.
-
-UltraStar txt 标签编辑工具。
-"""
+"""UltraStar txt tag editing helpers."""
 
 from __future__ import annotations
 

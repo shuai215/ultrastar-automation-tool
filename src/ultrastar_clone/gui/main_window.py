@@ -1,7 +1,4 @@
-"""Main window — navigation, page switching, signal wiring.
-
-主窗口 — 页面导航、切换和信号连接。
-"""
+"""Main window navigation, page switching, and signal wiring."""
 
 from __future__ import annotations
 

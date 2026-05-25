@@ -1,7 +1,4 @@
-"""Shared data models used across the import pipeline.
-
-导入流程中各模块共享的数据模型。
-"""
+"""Shared data models used across the import pipeline."""
 
 from __future__ import annotations
 
@@ -12,10 +9,7 @@ from urllib.parse import parse_qs, urlparse
 
 @dataclass(frozen=True)
 class SongRequest:
-    """User request for importing one song.
-
-    用户发起的一首歌导入请求。
-    """
+    """User request for importing one song."""
     artist: str = ""
     title: str = ""
     media_format: str = "mp3"
@@ -73,20 +67,14 @@ class SongRequest:
 
 @dataclass(frozen=True)
 class SongMetadata:
-    """Metadata discovered from USDB before downloading files.
-
-    从 USDB 搜索阶段获得的歌曲元数据。
-    """
+    """Metadata discovered from USDB before downloading files."""
     song_id: str
     youtube_url: str | None = None
 
 
 @dataclass(frozen=True)
 class ImportResult:
-    """Paths produced by one completed import.
-
-    一次导入完成后生成的文件路径结果。
-    """
+    """Paths produced by one completed import."""
     request: SongRequest
     song_folder: Path
     txt_path: Path | None
@@ -95,10 +83,7 @@ class ImportResult:
 
 
 def safe_filename(value: str) -> str:
-    """Return a Windows-safe filename for song folders and files.
-
-    生成适合 Windows 文件系统使用的安全文件名。
-    """
+    """Return a Windows-safe filename for song folders and files."""
     forbidden = '<>:"/\\|?*'
     cleaned = "".join("_" if char in forbidden else char for char in value)
     cleaned = " ".join(cleaned.split())

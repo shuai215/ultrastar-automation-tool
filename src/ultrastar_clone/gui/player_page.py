@@ -1,7 +1,4 @@
-"""Player page — play song media with synchronized lyrics display.
-
-播放器页面 — 播放歌曲媒体并同步显示歌词。
-"""
+"""Player page for song media and synchronized lyrics."""
 
 from __future__ import annotations
 
@@ -82,7 +79,7 @@ class PlayerPage(QWidget):
         layout.setContentsMargins(34, 20, 34, 20)
         layout.setSpacing(10)
 
-        # Top bar — navigation
+        # Top bar: navigation
         top_bar = QHBoxLayout()
         self.back_btn = PushButton("Back")
         self.back_btn.clicked.connect(self.backRequested.emit)
@@ -91,7 +88,7 @@ class PlayerPage(QWidget):
         top_bar.addWidget(self.title_label, 1)
         layout.addLayout(top_bar)
 
-        # Video / audio area — 16:9 centered player with rounded corners
+        # Video / audio area: 16:9 centered player with rounded corners
         self.video_widget = QVideoWidget()
         self.media_player.setVideoOutput(self.video_widget)
         self.video_widget.hide()
@@ -108,16 +105,16 @@ class PlayerPage(QWidget):
         player_row.addStretch(1)
         layout.addLayout(player_row)
 
-        # Lyrics — centered in the space below the video
+        # Lyrics: centered in the space below the video
         self.lyric_display = LyricDisplayWidget()
         layout.addWidget(self.lyric_display)
 
-        # Status — error only
+        # Status: error only
         self.status_label = QLabel("")
         self.status_label.setVisible(False)
         layout.addWidget(self.status_label)
 
-        # Bottom bar — playback controls
+        # Bottom bar: playback controls
         controls = QHBoxLayout()
         self.play_pause_btn = PushButton("Pause")
         self.play_pause_btn.clicked.connect(self.toggle_playback)

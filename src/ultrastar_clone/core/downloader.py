@@ -1,7 +1,4 @@
-﻿"""Download and extract UltraStar txt files from USDB.
-
-从 USDB 下载并提取 UltraStar 的 txt 歌曲文件。
-"""
+"""Download and extract UltraStar txt files from USDB."""
 
 from __future__ import annotations
 

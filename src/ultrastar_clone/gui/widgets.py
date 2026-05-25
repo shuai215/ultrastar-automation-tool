@@ -1,7 +1,4 @@
-"""Reusable custom widgets for the GUI.
-
-可复用的自定义 GUI 组件。
-"""
+"""Reusable custom widgets for the GUI."""
 
 from __future__ import annotations
 

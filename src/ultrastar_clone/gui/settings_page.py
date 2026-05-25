@@ -1,7 +1,4 @@
-"""Settings page — credentials, theme, and import defaults.
-
-设置页面 — 凭据、主题和导入默认值。
-"""
+"""Settings page for credentials, theme, and import defaults."""
 
 from __future__ import annotations
 
@@ -154,4 +151,3 @@ class SettingsPage(QWidget):
         )
         self._prefs_dirty = False
         InfoBar.success("Saved", "Import defaults will be reused on future launches.", parent=self)
-

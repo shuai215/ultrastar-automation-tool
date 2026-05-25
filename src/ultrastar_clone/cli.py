@@ -1,7 +1,4 @@
-﻿"""Command-line entry point for imports.
-
-导入功能的命令行入口。
-"""
+"""Command-line entry point for imports."""
 
 from __future__ import annotations
 
@@ -14,6 +11,7 @@ from ultrastar_clone.core.downloader import USDBTextDownloader
 from ultrastar_clone.core.scraper import USDBScraper
 from ultrastar_clone.models import SongRequest
 from ultrastar_clone.services.controller import ImportController
+from ultrastar_clone.services.errors import format_user_error
 from ultrastar_clone.services.logger import build_logger
 from ultrastar_clone.services.settings import AppSettings, default_log_dir, default_song_root
 
@@ -65,7 +63,10 @@ def main(argv: list[str] | None = None) -> int:
     converter = NoMediaConverter() if not download_audio and not download_video else YtDlpConverter()
     controller = ImportController(settings, scraper, downloader, converter, logger=logger)
 
-    result = controller.import_song(request)
+    try:
+        result = controller.import_song(request)
+    except Exception as exc:
+        raise SystemExit(format_user_error(exc)) from exc
     print(f"Song folder: {result.song_folder}")
     print(f"TXT file: {result.txt_path or 'skipped'}")
     if result.media_paths:
