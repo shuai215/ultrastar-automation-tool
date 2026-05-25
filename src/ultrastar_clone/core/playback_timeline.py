@@ -88,3 +88,23 @@ def _next_after(
         if line.start_time_ms > current.start_time_ms:
             return line
     return None
+
+
+def lyric_target_index(
+    lines: Sequence[TimedLyricsLine],
+    position_ms: int,
+) -> int:
+    """Return the index of the last lyric line whose start time has been reached.
+
+    This is a discrete jump — the index only changes when position_ms
+    crosses the next line's start time. Between starts the strip stays still.
+    """
+    if not lines:
+        return 0
+    target = 0
+    for i, line in enumerate(lines):
+        if line.start_time_ms <= position_ms:
+            target = i
+        else:
+            break
+    return target

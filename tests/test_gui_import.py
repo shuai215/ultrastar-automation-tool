@@ -1,4 +1,4 @@
-﻿"""Tests for safe GUI module import.
+"""Tests for safe GUI module import.
 
 GUI 模块安全导入测试。
 """
@@ -22,26 +22,6 @@ class GuiImportTests(unittest.TestCase):
         self.assertEqual(format_media_time(65000), "01:05")
         self.assertEqual(format_media_time(3665000), "61:05")
 
-    def test_describe_lyric_sync_status_requires_timed_lyrics_for_ready(self) -> None:
-        from ultrastar_clone.core.song_parser import LyricsLine, Note, Song
-        from ultrastar_clone.gui.app import describe_lyric_sync_status
-
-        note = Note(0, 2, 1, "Hi")
-        lyric = LyricsLine((note,), "Hi", 0, 2)
-
-        self.assertEqual(
-            describe_lyric_sync_status(Song(bpm=None, lyrics=(lyric,)), ()),
-            ("Lyrics cannot sync because BPM is missing or invalid", "No synchronized lyrics"),
-        )
-        self.assertEqual(
-            describe_lyric_sync_status(Song(bpm=150.0, lyrics=()), ()),
-            ("No synchronized lyrics found in TXT", "No synchronized lyrics"),
-        )
-        self.assertEqual(
-            describe_lyric_sync_status(Song(bpm=150.0, lyrics=(lyric,)), (object(),)),
-            ("Ready", ""),
-        )
-
     def test_entry_uses_video_output_for_tagged_non_mp4_video(self) -> None:
         from ultrastar_clone.gui.app import entry_uses_video_output
 
@@ -50,26 +30,43 @@ class GuiImportTests(unittest.TestCase):
         self.assertTrue(entry_uses_video_output(entry, Path("video.webm")))
         self.assertFalse(entry_uses_video_output(entry, Path("audio.ogg")))
 
-    def test_lyric_transition_only_runs_when_current_text_changes(self) -> None:
-        from ultrastar_clone.gui.app import lyric_transition_required
+    def test_lyric_target_index_discrete(self) -> None:
+        from ultrastar_clone.core.playback_timeline import TimedLyricsLine, lyric_target_index
 
-        self.assertFalse(lyric_transition_required("Hello", "Hello"))
-        self.assertFalse(lyric_transition_required("", ""))
-        self.assertTrue(lyric_transition_required("Hello", "world"))
+        line0 = TimedLyricsLine(start_time_ms=0, end_time_ms=3000, text="line 0",
+                                source=None)  # type: ignore[arg-type]
+        line1 = TimedLyricsLine(start_time_ms=3000, end_time_ms=6000, text="line 1",
+                                source=None)  # type: ignore[arg-type]
+        lines = (line0, line1)
 
-    def test_lyric_display_payload_keeps_previous_line_during_gap(self) -> None:
-        from ultrastar_clone.gui.app import lyric_display_payload
+        # position 0 — still on line 0
+        self.assertEqual(lyric_target_index(lines, 0), 0)
+        # position 2999 — still on line 0 (hasn't reached line 1 start)
+        self.assertEqual(lyric_target_index(lines, 2999), 0)
+        # position 3000 — crosses into line 1
+        self.assertEqual(lyric_target_index(lines, 3000), 1)
+        # position 5999 — still on line 1
+        self.assertEqual(lyric_target_index(lines, 5999), 1)
 
-        previous = SimpleNamespace(text="Life is sweet as honey", start_time_ms=1000, end_time_ms=2000)
-        next_line = SimpleNamespace(text="Yeah this beat cha-ching", start_time_ms=3000, end_time_ms=4000)
-        window = SimpleNamespace(previous=previous, current=None, next=next_line)
+    def test_lyric_target_index_before_first_line(self) -> None:
+        from ultrastar_clone.core.playback_timeline import TimedLyricsLine, lyric_target_index
 
-        self.assertEqual(
-            lyric_display_payload(window, 2500),
-            ("", "Life is sweet as honey", "Yeah this beat cha-ching"),
-        )
+        line0 = TimedLyricsLine(start_time_ms=500, end_time_ms=1000, text="line 0",
+                                source=None)  # type: ignore[arg-type]
+        self.assertEqual(lyric_target_index((line0,), 0), 0)
+
+    def test_lyric_target_index_after_last_line(self) -> None:
+        from ultrastar_clone.core.playback_timeline import TimedLyricsLine, lyric_target_index
+
+        line0 = TimedLyricsLine(start_time_ms=0, end_time_ms=1000, text="line 0",
+                                source=None)  # type: ignore[arg-type]
+        self.assertEqual(lyric_target_index((line0,), 1500), 0)
+
+    def test_lyric_target_index_empty(self) -> None:
+        from ultrastar_clone.core.playback_timeline import lyric_target_index
+
+        self.assertEqual(lyric_target_index((), 500), 0)
 
 
 if __name__ == "__main__":
     unittest.main()
-

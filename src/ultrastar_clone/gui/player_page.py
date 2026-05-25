@@ -18,13 +18,11 @@ from PyQt6.QtWidgets import (
 )
 from qfluentwidgets import PushButton, TitleLabel
 
-from ultrastar_clone.core.playback_timeline import build_timed_lyrics, lyrics_at_position
+from ultrastar_clone.core.playback_timeline import build_timed_lyrics
 from ultrastar_clone.core.song_parser import parse_ultrastar_txt
 from ultrastar_clone.gui.utils import (
-    describe_lyric_sync_status,
     entry_uses_video_output,
     format_media_time,
-    lyric_display_payload,
 )
 from ultrastar_clone.gui.widgets import LyricDisplayWidget
 
@@ -49,7 +47,7 @@ class _PlayerContainer(QWidget):
 
         video_widget.setAspectRatioMode(Qt.AspectRatioMode.KeepAspectRatioByExpanding)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-        self.setMinimumHeight(180)
+        self.setMinimumHeight(160)
 
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
@@ -81,8 +79,8 @@ class PlayerPage(QWidget):
 
     def _build_ui(self) -> None:
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(34, 28, 34, 28)
-        layout.setSpacing(14)
+        layout.setContentsMargins(34, 20, 34, 20)
+        layout.setSpacing(10)
 
         # Top bar — navigation
         top_bar = QHBoxLayout()
@@ -108,9 +106,9 @@ class PlayerPage(QWidget):
         player_row.addStretch(1)
         player_row.addWidget(self._player, 8)
         player_row.addStretch(1)
-        layout.addLayout(player_row, 4)
+        layout.addLayout(player_row)
 
-        # Lyrics
+        # Lyrics — centered in the space below the video
         self.lyric_display = LyricDisplayWidget()
         layout.addWidget(self.lyric_display)
 
@@ -136,7 +134,10 @@ class PlayerPage(QWidget):
     def load_entry(self, entry) -> None:
         self.stop()
         self.timed_lyrics = ()
-        self.lyric_display.clear()
+        self.lyric_display.stop()
+        self.lyric_display.set_tick_callback(None)
+        self.lyric_display.set_lines([])
+        self.lyric_display.set_timed_lines(())
         self.status_label.setVisible(False)
         title = entry.display_title
         if entry.display_artist:
@@ -150,14 +151,19 @@ class PlayerPage(QWidget):
             except (OSError, UnicodeDecodeError, ValueError) as exc:
                 self.status_label.setText(f"Lyrics unavailable: {exc}")
                 self.status_label.setVisible(True)
-                self.lyric_display.set_lyrics("", "No synchronized lyrics", "")
+                self.lyric_display.set_lines(["No synchronized lyrics"])
             else:
-                _, current_text = describe_lyric_sync_status(song, self.timed_lyrics)
-                self.lyric_display.set_lyrics("", current_text, "")
+                if self.timed_lyrics:
+                    texts = [line.text for line in self.timed_lyrics]
+                    self.lyric_display.set_timed_lines(self.timed_lyrics)
+                    self.lyric_display.set_lines(texts)
+                    self.lyric_display.set_tick_callback(self.media_player.position)
+                else:
+                    self.lyric_display.set_lines(["No synchronized lyrics"])
         else:
             self.status_label.setText("No TXT lyrics found")
             self.status_label.setVisible(True)
-            self.lyric_display.set_lyrics("", "No synchronized lyrics", "")
+            self.lyric_display.set_lines(["No synchronized lyrics"])
 
         media_path = entry.preferred_media_path
         if media_path is None:
@@ -171,16 +177,20 @@ class PlayerPage(QWidget):
         self.media_player.setSource(QUrl.fromLocalFile(str(media_path)))
         self.media_player.play()
         self.play_pause_btn.setText("Pause")
+        self.lyric_display.start()
 
     def stop(self) -> None:
         self.media_player.stop()
+        self.lyric_display.stop()
 
     def toggle_playback(self) -> None:
         if self.media_player.playbackState() == QMediaPlayer.PlaybackState.PlayingState:
             self.media_player.pause()
+            self.lyric_display.stop()
             self.play_pause_btn.setText("Play")
         else:
             self.media_player.play()
+            self.lyric_display.start()
             self.play_pause_btn.setText("Pause")
 
     def _on_position_changed(self, position: int) -> None:
@@ -188,7 +198,6 @@ class PlayerPage(QWidget):
             self.progress_slider.setValue(position)
         duration = self.media_player.duration()
         self.time_label.setText(f"{format_media_time(position)} / {format_media_time(duration)}")
-        self._update_lyrics(position)
 
     def _on_duration_changed(self, duration: int) -> None:
         self.progress_slider.setRange(0, max(0, duration))
@@ -197,6 +206,7 @@ class PlayerPage(QWidget):
 
     def _on_media_status_changed(self, status) -> None:
         if status == QMediaPlayer.MediaStatus.EndOfMedia:
+            self.lyric_display.stop()
             self.stop()
             self.playbackEnded.emit()
 
@@ -210,8 +220,3 @@ class PlayerPage(QWidget):
     def _on_slider_released(self) -> None:
         self._slider_dragging = False
         self.media_player.setPosition(self.progress_slider.value())
-
-    def _update_lyrics(self, position: int) -> None:
-        window = lyrics_at_position(self.timed_lyrics, position)
-        previous, current, next_line = lyric_display_payload(window, position)
-        self.lyric_display.set_lyrics(previous, current, next_line)

@@ -6,111 +6,231 @@
 from __future__ import annotations
 
 from PyQt6.QtCore import (
-    QAbstractAnimation,
+    QEvent,
     QEasingCurve,
-    QPoint,
     QPropertyAnimation,
-    QSequentialAnimationGroup,
     QSize,
+    QTimer,
     Qt,
     QVariantAnimation,
     pyqtProperty,
 )
-from PyQt6.QtGui import QPalette
-from PyQt6.QtWidgets import QLabel, QProgressBar, QTableWidget, QVBoxLayout, QWidget
+from PyQt6.QtGui import QColor, QPalette
+from PyQt6.QtWidgets import (
+    QFrame,
+    QLabel,
+    QProgressBar,
+    QScrollArea,
+    QSizePolicy,
+    QTableWidget,
+    QVBoxLayout,
+    QWidget,
+)
+from ultrastar_clone.core.playback_timeline import lyric_target_index
 from qfluentwidgets import ProgressBar as FluentProgressBar
-
-from ultrastar_clone.gui.utils import lyric_transition_required
 
 
 class LyricDisplayWidget(QWidget):
-    """Three-line lyric display with a short scroll transition."""
+    """Triggered smooth-scroll lyric strip.
+
+    All lyrics are pre-rendered as a vertical strip. The current line
+    stays centered and still. When playback crosses the next line's
+    start time the strip animates to the new position in one motion.
+    """
+
+    _POLL_MS = 100
+    _ANIM_DURATION = 300
+    _VISIBLE_LINES = 3
+    _ROW_HEIGHT = 34
+    _LINE_SPACING = 0
+    _CENTER_FONT = "font-size: 22px; font-weight: 600;"
+    _EDGE_FONT = "font-size: 15px;"
 
     def __init__(self) -> None:
         super().__init__()
-        self._current_text = ""
+        self._labels: list[QLabel] = []
+        self._line_height = self._ROW_HEIGHT
+        self._target_index = 0
+        self._tick_callback: object = None
+        self._timed_lines: tuple = ()
+
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self.setFixedHeight(self._viewport_height())
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
 
-        self._viewport = QWidget()
-        self._viewport.setMinimumHeight(104)
+        self._viewport = QScrollArea()
+        self._viewport.setFrameShape(QFrame.Shape.NoFrame)
+        self._viewport.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self._viewport.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self._viewport.setWidgetResizable(False)
+        self._viewport.setFixedHeight(self._viewport_height())
+        self._viewport.setStyleSheet("background: transparent;")
         layout.addWidget(self._viewport)
 
-        self._line_group = QWidget(self._viewport)
-        group_layout = QVBoxLayout(self._line_group)
-        group_layout.setContentsMargins(0, 0, 0, 0)
-        group_layout.setSpacing(5)
+        self._strip = QWidget()
+        self._strip_layout = QVBoxLayout(self._strip)
+        self._strip_layout.setContentsMargins(8, 0, 8, 0)
+        self._strip_layout.setSpacing(self._LINE_SPACING)
+        self._strip.setStyleSheet("background: transparent;")
+        self._viewport.setWidget(self._strip)
+        self._viewport.viewport().installEventFilter(self)
 
-        self.previous_label = QLabel("")
-        self.current_label = QLabel("")
-        self.next_label = QLabel("")
-        for label in (self.previous_label, self.current_label, self.next_label):
+        self._placeholder = QLabel("", self._viewport)
+        self._placeholder.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._placeholder.setStyleSheet("font-size: 24px; font-weight: 600;")
+        self._placeholder.setVisible(False)
+
+        self._poll_timer = QTimer(self)
+        self._poll_timer.setInterval(self._POLL_MS)
+        self._poll_timer.timeout.connect(self._poll)
+
+        self._scroll_anim = QPropertyAnimation(self._viewport.verticalScrollBar(), b"value", self)
+        self._scroll_anim.setDuration(self._ANIM_DURATION)
+        self._scroll_anim.setEasingCurve(QEasingCurve.Type.OutCubic)
+
+    def _viewport_height(self) -> int:
+        return self._ROW_HEIGHT * self._VISIBLE_LINES
+
+    # ------------------------------------------------------------------
+    # Public API
+    # ------------------------------------------------------------------
+
+    def set_lines(self, texts: list[str]) -> None:
+        """Rebuild the lyric strip with the given text lines."""
+        self._poll_timer.stop()
+        self._scroll_anim.stop()
+        self._target_index = 0
+
+        while self._strip_layout.count():
+            item = self._strip_layout.takeAt(0)
+            widget = item.widget()
+            if widget is not None:
+                widget.deleteLater()
+        self._labels.clear()
+
+        self._placeholder.setVisible(not bool(texts))
+
+        if not texts:
+            self._line_height = self._ROW_HEIGHT
+            self._position_strip()
+            return
+
+        for text in texts:
+            label = QLabel(text or "")
             label.setAlignment(Qt.AlignmentFlag.AlignCenter)
             label.setWordWrap(True)
+            label.setFixedHeight(self._ROW_HEIGHT)
+            label.setStyleSheet(self._EDGE_FONT)
+            self._strip_layout.addWidget(label)
+            self._labels.append(label)
 
-        self.previous_label.setStyleSheet("font-size: 14px;")
-        self.previous_label.setForegroundRole(QPalette.ColorRole.Mid)
-        self.current_label.setStyleSheet("font-size: 24px; font-weight: 600;")
-        self.next_label.setStyleSheet("font-size: 14px;")
-        self.next_label.setForegroundRole(QPalette.ColorRole.Mid)
+        self._update_line_height()
+        self._apply_line_styles(self._target_index)
+        self._position_strip()
 
-        group_layout.addWidget(self.previous_label)
-        group_layout.addWidget(self.current_label)
-        group_layout.addWidget(self.next_label)
+    def set_tick_callback(self, callback: object) -> None:
+        """Set a callable that returns the current playback position in ms."""
+        self._tick_callback = callback
 
-        self._slide_animation = QPropertyAnimation(self._line_group, b"pos", self)
-        self._slide_animation.setDuration(220)
-        self._slide_animation.setEasingCurve(QEasingCurve.Type.OutCubic)
+    def start(self) -> None:
+        self._poll_timer.start()
 
-    def clear(self) -> None:
-        self._stop_animation()
-        self._current_text = ""
-        self.previous_label.clear()
-        self.current_label.clear()
-        self.next_label.clear()
-        self._position_line_group()
+    def stop(self) -> None:
+        self._poll_timer.stop()
+        self._scroll_anim.stop()
 
-    def set_lyrics(self, previous: str, current: str, next_line: str) -> None:
-        previous = previous or ""
-        current = current or ""
-        next_line = next_line or ""
-        should_animate = lyric_transition_required(self._current_text, current)
-        self._current_text = current
+    # ------------------------------------------------------------------
+    # Internal
+    # ------------------------------------------------------------------
 
-        self.previous_label.setText(previous)
-        self.current_label.setText(current)
-        self.next_label.setText(next_line)
-        self._position_line_group()
+    def _poll(self) -> None:
+        if self._tick_callback is None or not self._labels:
+            return
+        position_ms = self._tick_callback()
+        if position_ms is None or position_ms < 0:
+            return
 
-        if should_animate:
-            self._run_transition()
+        new_idx = lyric_target_index(self._timed_lines, position_ms)
+        if new_idx != self._target_index:
+            self._target_index = new_idx
+            self._animate_to_line(new_idx)
+
+    def _animate_to_line(self, index: int) -> None:
+        target_y = self._compute_strip_y(index)
+        self._scroll_anim.stop()
+        self._scroll_anim.setStartValue(self._viewport.verticalScrollBar().value())
+        self._scroll_anim.setEndValue(target_y)
+        self._scroll_anim.start()
+        self._apply_line_styles(index)
+
+    def _strip_total_height(self) -> int:
+        """Total pixel height of the full lyric strip, computed from line count."""
+        if not self._labels:
+            return self._viewport_height()
+        return len(self._labels) * self._line_height
+
+    def _compute_strip_y(self, index: int) -> int:
+        """Return the scrollbar value that centres *index* in the viewport."""
+        if not self._labels:
+            return 0
+        viewport_h = self._viewport_height()
+        total_h = self._strip_total_height()
+        offset = (index - 1) * self._line_height
+        max_offset = max(0, total_h - viewport_h)
+        return max(0, min(offset, max_offset))
+
+    def _apply_line_styles(self, center: int) -> None:
+        """Style labels by discrete distance from the target index."""
+        for i, label in enumerate(self._labels):
+            dist = abs(i - center)
+            if dist == 0:
+                label.setStyleSheet(self._CENTER_FONT)
+            elif dist == 1:
+                color = QColor(self.palette().color(QPalette.ColorRole.WindowText))
+                color.setAlpha(170)
+                label.setStyleSheet(
+                    f"{self._EDGE_FONT}; color: rgba("
+                    f"{color.red()},{color.green()},{color.blue()},{color.alpha()});"
+                )
+            else:
+                label.setStyleSheet(f"{self._EDGE_FONT}; color: rgba(128,128,128,100);")
+
+    def _position_strip(self) -> None:
+        """Snap strip to the current target index without animation."""
+        if not self._labels:
+            self._strip.resize(self._viewport.viewport().width(), self._viewport_height())
+            self._viewport.verticalScrollBar().setValue(0)
+            self._placeholder.resize(self._viewport.viewport().width(), self._viewport_height())
+            self._placeholder.move(0, 0)
+            return
+
+        total_h = self._strip_total_height()
+        viewport_w = self._viewport.viewport().width()
+        self._strip.resize(viewport_w, max(total_h, self._viewport_height()))
+        y = self._compute_strip_y(self._target_index)
+        self._viewport.verticalScrollBar().setValue(y)
+
+    def _update_line_height(self) -> None:
+        self._line_height = self._ROW_HEIGHT
+        self._viewport.setFixedHeight(self._viewport_height())
+        self.setFixedHeight(self._viewport_height())
 
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
-        self._position_line_group()
+        self._update_line_height()
+        self._position_strip()
 
-    def _run_transition(self) -> None:
-        self._stop_animation()
-        self._position_line_group()
-        end_pos = self._line_group.pos()
-        start_pos = end_pos + QPoint(0, 18)
-        self._line_group.move(start_pos)
+    def eventFilter(self, watched, event) -> bool:
+        if watched is self._viewport.viewport() and event.type() == QEvent.Type.Resize:
+            self._position_strip()
+        return super().eventFilter(watched, event)
 
-        self._slide_animation.setStartValue(start_pos)
-        self._slide_animation.setEndValue(end_pos)
-        self._slide_animation.start()
-
-    def _stop_animation(self) -> None:
-        if self._slide_animation.state() == QAbstractAnimation.State.Running:
-            self._slide_animation.stop()
-
-    def _position_line_group(self) -> None:
-        width = max(1, self._viewport.width())
-        self._line_group.resize(width, self._line_group.sizeHint().height())
-        y = max(0, (self._viewport.height() - self._line_group.height()) // 2)
-        self._line_group.move(0, y)
+    def set_timed_lines(self, lines: tuple) -> None:
+        """Store timed lyrics for target-index lookups."""
+        self._timed_lines = lines
 
 
 class PreferredRowsTable(QTableWidget):

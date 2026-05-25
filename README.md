@@ -70,7 +70,7 @@ src/ultrastar_clone/
 ├── core/                   # Domain logic (no GUI deps)
 │   ├── scraper.py          # USDB login, search, detail-page parsing (stdlib urllib + re)
 │   ├── downloader.py       # USDB lyrics download, wait-page handling
-│   ├── converter.py        # yt-dlp subprocess wrapper (MP3/MP4)
+│   ├── converter.py        # yt-dlp Python API wrapper (MP3/MP4), bundled ffmpeg
 │   ├── editor.py           # UltraStar txt tag editing (#MP3/#VIDEO/#GAP)
 │   ├── song_parser.py      # UltraStar txt file parser → Song dataclass
 │   └── playback_timeline.py # BPM → ms timeline, lyric window at playback position
@@ -92,6 +92,9 @@ src/ultrastar_clone/
 │   ├── workers.py          # QThread workers (ImportWorker, SearchWorker)
 │   ├── widgets.py          # Custom widgets (LyricDisplayWidget, AnimatedProgressBar)
 │   └── utils.py            # Helpers (lyric cleanup, time formatting)
+
+├── bin/                    # Bundled native tools (packaged into EXE)
+│   └── ffmpeg.exe          # Windows ffmpeg binary
 
 tests/                      # Unit tests (unittest, no network)
 ```

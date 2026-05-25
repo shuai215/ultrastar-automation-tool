@@ -10,11 +10,8 @@ from PyQt6.QtGui import QColor, QPalette
 from PyQt6.QtWidgets import QApplication
 
 from ultrastar_clone.gui.utils import (
-    describe_lyric_sync_status,
     entry_uses_video_output,
     format_media_time,
-    lyric_display_payload,
-    lyric_transition_required,
 )
 
 
